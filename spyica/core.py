@@ -31,8 +31,8 @@ def ica_spike_sorting(recording, clustering='mog', n_comp='all',
                      chunk_size=chunk_size, kurt_thresh=kurt_thresh,
                      skew_thresh=skew_thresh, verbose=verbose)
 
-    sst, independent_spike_idx = ss.clustering(traces, fs, cleaned_sources_ica, recording.get_num_frames(0),
-                                               clustering, spike_thresh, keep_all_clusters, features, verbose)
+    sst, independent_spike_idx = ss.cluster(traces, fs, cleaned_sources_ica, recording.get_num_frames(0),
+                                            clustering, spike_thresh, keep_all_clusters, features, verbose)
 
     if 'ica_source' in sst[0].annotations.keys():
         independent_spike_idx = [s.annotations['ica_source'] for s in sst]
@@ -74,8 +74,8 @@ def orica_spike_sorting(recording, clustering='mog', n_comp='all',
                      chunk_size=chunk_size, kurt_thresh=kurt_thresh, skew_thresh=skew_thresh,
                      num_pass=num_pass, block_size=block_size, verbose=verbose)
 
-    sst, independent_spike_idx = ss.clustering(traces, fs, cleaned_sources_orica, recording.get_num_frames(0),
-                                               clustering, spike_thresh, keep_all_clusters, features, verbose)
+    sst, independent_spike_idx = ss.cluster(traces, fs, cleaned_sources_orica, recording.get_num_frames(0),
+                                            clustering, spike_thresh, keep_all_clusters, features, verbose)
 
     if 'ica_source' in sst[0].annotations.keys():
         independent_spike_idx = [s.annotations['ica_source'] for s in sst]
@@ -203,7 +203,7 @@ def ica_alg(recording, clustering='mog', n_comp='all',
                      chunk_size=chunk_size, kurt_thresh=kurt_thresh,
                      skew_thresh=skew_thresh, verbose=verbose)
 
-    sst, independent_spike_idx = ss.clustering(traces, fs, cleaned_sources_ica, recording.get_num_frames(0),
+    sst, independent_spike_idx = ss.cluster(traces, fs, cleaned_sources_ica, recording.get_num_frames(0),
                                                clustering, spike_thresh, keep_all_clusters, features, verbose)
 
     if 'ica_source' in sst[0].annotations.keys():

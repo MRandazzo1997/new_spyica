@@ -7,6 +7,7 @@ import spyica.ica as ica
 import spyica.orica as orica
 
 from spikeinterface import NumpySorting
+from spikeinterface import sortingcomponents as sc
 from spyica.tools import clean_sources, cluster_spike_amplitudes, detect_and_align, \
     reject_duplicate_spiketrains
 
@@ -46,8 +47,8 @@ def clean_ica(traces, n_comp, t_init, ica_alg='ica', n_chunks=0, chunk_size=0,
     return cleaned_sources_ica, cleaned_A_ica, cleaned_W_ica, source_idx
 
 
-def clustering(traces, fs, cleaned_sources_ica, num_frames, clustering='mog', spike_thresh=5,
-               keep_all_clusters=False, features='amp', verbose=True):
+def cluster(traces, fs, cleaned_sources_ica, num_frames, clustering='mog', spike_thresh=5,
+            keep_all_clusters=False, features='amp', verbose=True):
     if verbose:
         print('Clustering Sources with: ', clustering)
 
@@ -82,3 +83,15 @@ def set_times_labels(sst, fs):
         labels = np.concatenate((labels, np.array([i_s + 1] * len(st.times))))
 
     return NumpySorting.from_times_labels(times.astype(int), labels, fs)
+
+
+def mask_spike_trains(recording, dtype='int16', sample_window=5):
+    peaks = sc.detect_peaks(recording)
+    traces = recording.get_traces().astype(dtype).T
+    cut_traces = []
+    for peak_time in peaks['sample_ind']:
+        cut_traces.append(traces[:][peak_time-sample_window:peak_time+sample_window])
+
+    return cut_traces
+
+
