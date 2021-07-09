@@ -15,7 +15,7 @@ from .tools import detect_and_align, reject_duplicate_spiketrains, \
 def ica_spike_sorting(recording, clustering='mog', n_comp='all',
                       features='amp', skew_thresh=0.2, kurt_thresh=1,
                       n_chunks=0, chunk_size=0, spike_thresh=5, dtype='int16',
-                      keep_all_clusters=False, verbose=True):
+                      keep_all_clusters=False, sample_window=4, verbose=True):
     if not isinstance(recording, BaseRecording):
         raise Exception("Input a RecordingExtractor object!")
 
@@ -24,10 +24,11 @@ def ica_spike_sorting(recording, clustering='mog', n_comp='all',
     fs = recording.get_sampling_frequency()
 
     traces = recording.get_traces().astype(dtype).T
+    cut_traces = ss.mask_spike_trains(recording, traces, dtype=dtype, sample_window=sample_window)
 
     t_init = time.time()
     cleaned_sources_ica, cleaned_A_ica, cleaned_W_ica, source_idx = \
-        ss.clean_ica(traces, n_comp, t_init, n_chunks=n_chunks,
+        ss.clean_ica(traces, cut_traces, n_comp, t_init, n_chunks=n_chunks,
                      chunk_size=chunk_size, kurt_thresh=kurt_thresh,
                      skew_thresh=skew_thresh, verbose=verbose)
 

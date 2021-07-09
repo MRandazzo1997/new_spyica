@@ -12,7 +12,7 @@ from spyica.tools import clean_sources, cluster_spike_amplitudes, detect_and_ali
     reject_duplicate_spiketrains
 
 
-def clean_ica(traces, n_comp, t_init, ica_alg='ica', n_chunks=0, chunk_size=0,
+def clean_ica(traces, cut_traces, n_comp, t_init, ica_alg='ica', n_chunks=0, chunk_size=0,
               kurt_thresh=1, skew_thresh=0.2, num_pass=1, block_size=800, verbose=True):
     if ica_alg == 'ica' or ica_alg == 'orica':
         if verbose and ica_alg == 'ica':
@@ -24,11 +24,13 @@ def clean_ica(traces, n_comp, t_init, ica_alg='ica', n_chunks=0, chunk_size=0,
 
     # TODO use random snippets (e.g. 20% of the data) / or spiky signals for fast ICA
     if ica_alg == 'ica':
-        s_ica, A_ica, W_ica = ica.instICA(traces, n_comp=n_comp, n_chunks=n_chunks, chunk_size=chunk_size)
+        scut_ica, A_ica, W_ica = ica.instICA(cut_traces, n_comp=n_comp, n_chunks=n_chunks, chunk_size=chunk_size)
     else:
-        s_ica, A_ica, W_ica = orica.instICA(traces, n_comp=n_comp,
-                                            n_chunks=n_chunks, chunk_size=chunk_size,
-                                            numpass=num_pass, block_size=block_size)
+        scut_ica, A_ica, W_ica = orica.instICA(cut_traces, n_comp=n_comp,
+                                               n_chunks=n_chunks, chunk_size=chunk_size,
+                                               numpass=num_pass, block_size=block_size)
+    s_ica = np.matmul(W_ica, traces)
+
     if verbose:
         t_ica = time.time() - t_init
         if ica_alg == 'ica':
@@ -85,13 +87,24 @@ def set_times_labels(sst, fs):
     return NumpySorting.from_times_labels(times.astype(int), labels, fs)
 
 
-def mask_spike_trains(recording, dtype='int16', sample_window=5):
+# TODO close peaks might duplicate traces samples
+def mask_spike_trains(recording, traces, dtype='int16', sample_window=4):
     peaks = sc.detect_peaks(recording)
-    traces = recording.get_traces().astype(dtype).T
-    cut_traces = []
+    if sample_window == 'all':
+        return traces
+    elif sample_window > ((traces.shape[1] / len(peaks) - 1) / 2):
+        raise ValueError("Decrease sample_window.")
+
+    size = (2 * sample_window + 1) * len(peaks)
+    cut_traces = np.empty((traces.shape[0], size), dtype=dtype)
+    i = 0
     for peak_time in peaks['sample_ind']:
-        cut_traces.append(traces[:][peak_time-sample_window:peak_time+sample_window])
+        for channels in range(0, traces.shape[0]):
+            if sample_window > 0:
+                cut_traces[channels, i:i+(2 * sample_window + 1)] = \
+                    traces[channels, peak_time-sample_window:peak_time+sample_window+1]
+            else:
+                cut_traces[channels, i] = traces[channels, peak_time]
+        i = i + (2 * sample_window + 1)
 
     return cut_traces
-
-
