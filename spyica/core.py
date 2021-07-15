@@ -16,7 +16,8 @@ def ica_spike_sorting(recording, clustering='mog', n_comp='all',
                       features='amp', skew_thresh=0.2, kurt_thresh=1,
                       n_chunks=0, chunk_size=0, spike_thresh=5, dtype='int16',
                       keep_all_clusters=False, sample_window_ms=2, percent_spikes=None,
-                      balance_spikes_on_channel=False, max_num_spikes=None, verbose=True, use_lambda=True):
+                      balance_spikes_on_channel=False, max_num_spikes=None, verbose=True,
+                      use_lambda=True, max_iter=200):
     if not isinstance(recording, BaseRecording):
         raise Exception("Input a RecordingExtractor object!")
 
@@ -26,7 +27,8 @@ def ica_spike_sorting(recording, clustering='mog', n_comp='all',
     traces = recording.get_traces().astype(dtype).T
     cut_traces, idx, peaks = ss.mask_traces(recording, fs, sample_window_ms=sample_window_ms,
                                             max_num_spikes=max_num_spikes, percent_spikes=percent_spikes,
-                                            balance_spikes_on_channel=balance_spikes_on_channel, use_lambda=use_lambda)
+                                            balance_spikes_on_channel=balance_spikes_on_channel,
+                                            use_lambda=use_lambda)
     # mask = ss.Mask(recording, traces, fs, sample_window_ms=sample_window_ms,
     #                percent_spikes=percent_spikes, max_num_spikes=max_num_spikes,
     #                balance_spikes_on_channel=balance_spikes_on_channel)
@@ -34,7 +36,8 @@ def ica_spike_sorting(recording, clustering='mog', n_comp='all',
 
     t_init = time.time()
     scut_ica, A_ica, W_ica = \
-        ss.compute_ica(cut_traces, n_comp, n_chunks=n_chunks, chunk_size=chunk_size, verbose=verbose)
+        ss.compute_ica(cut_traces, n_comp, n_chunks=n_chunks, chunk_size=chunk_size,
+                       verbose=verbose, max_iter=max_iter)
     if verbose:
         t_ica = time.time() - t_init
         print('FastICA completed in: ', t_ica)

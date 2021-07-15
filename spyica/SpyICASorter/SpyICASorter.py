@@ -13,7 +13,7 @@ from spyica.tools import clean_sources, cluster_spike_amplitudes, detect_and_ali
 
 
 def compute_ica(cut_traces, n_comp, ica_alg='ica', n_chunks=0,
-                chunk_size=0, num_pass=1, block_size=800, verbose=True):
+                chunk_size=0, num_pass=1, block_size=800, verbose=True, max_iter=200):
     if ica_alg == 'ica' or ica_alg == 'orica':
         if verbose and ica_alg == 'ica':
             print('Applying FastICA algorithm')
@@ -24,7 +24,7 @@ def compute_ica(cut_traces, n_comp, ica_alg='ica', n_chunks=0,
 
     # TODO use random snippets (e.g. 20% of the data) / or spiky signals for fast ICA
     if ica_alg == 'ica':
-        scut_ica, A_ica, W_ica = ica.instICA(cut_traces, n_comp=n_comp, n_chunks=n_chunks, chunk_size=chunk_size)
+        scut_ica, A_ica, W_ica = ica.instICA(cut_traces, n_comp=n_comp, n_chunks=n_chunks, chunk_size=chunk_size, max_iter=max_iter)
     else:
         scut_ica, A_ica, W_ica = orica.instICA(cut_traces, n_comp=n_comp,
                                                n_chunks=n_chunks, chunk_size=chunk_size,
