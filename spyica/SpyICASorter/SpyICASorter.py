@@ -1,6 +1,5 @@
 from __future__ import print_function
 
-import multiprocessing
 import time
 import quantities as pq
 import numpy as np
@@ -13,7 +12,7 @@ from spyica.tools import clean_sources, cluster_spike_amplitudes, detect_and_ali
     reject_duplicate_spiketrains
 
 
-def compute_ica(cut_traces, n_comp, t_init, ica_alg='ica', n_chunks=0,
+def compute_ica(cut_traces, n_comp, ica_alg='ica', n_chunks=0,
                 chunk_size=0, num_pass=1, block_size=800, verbose=True):
     if ica_alg == 'ica' or ica_alg == 'orica':
         if verbose and ica_alg == 'ica':
@@ -30,12 +29,6 @@ def compute_ica(cut_traces, n_comp, t_init, ica_alg='ica', n_chunks=0,
         scut_ica, A_ica, W_ica = orica.instICA(cut_traces, n_comp=n_comp,
                                                n_chunks=n_chunks, chunk_size=chunk_size,
                                                numpass=num_pass, block_size=block_size)
-    if verbose:
-        t_ica = time.time() - t_init
-        if ica_alg == 'ica':
-            print('FastICA completed in: ', t_ica)
-        elif ica_alg == 'orica':
-            print('ORICA completed in:', t_ica)
 
     return scut_ica, A_ica, W_ica
 
@@ -119,17 +112,19 @@ def mask_traces(recording, traces, fs, sample_window_ms=2,
         If false, random subsampling
     Returns
     -------
+    cut_traces: numpy array
+        Array with traces
 
     """
     if sample_window_ms is None:
-        return traces, None, None
+        return recording.get_traces().astype('int16').T, None, None
 
     # set sample window
     if isinstance(sample_window_ms, float) or isinstance(sample_window_ms, int):
         sample_window_ms = [sample_window_ms, sample_window_ms]
-    sample_window = [int(sample_window_ms[0] * fs), int(sample_window_ms[1] * fs)]
+    sample_window = [int(sample_window_ms[0] * fs / 1000), int(sample_window_ms[1] * fs / 1000)]
     num_channels = recording.get_num_channels()
-    peaks = sc.detect_peaks(recording)
+    peaks = sc.detect_peaks(recording, progress_bar=True)
 
     # subsampling
     if percent_spikes is not None:
@@ -145,30 +140,48 @@ def mask_traces(recording, traces, fs, sample_window_ms=2,
                 final_idxs.extend(list(idxs))
             final_idxs = sorted(final_idxs)
             peaks_subsamp = peaks['sample_ind'][final_idxs]
-            print(len(peaks_subsamp))
         else:
             num_samples = len(peaks['sample_ind']) * percent_spikes
             peaks_subsamp = np.random.choice(peaks['sample_ind'], int(num_samples))
-            print(len(peaks_subsamp))
     else:
         peaks_subsamp = peaks['sample_ind']
+
+    print(f"Number of detected spikes: {len(peaks['sample_ind'])}")
+    print(f"Number of sampled spikes: {len(peaks_subsamp)}")
 
     # find idxs
     selected_idxs = set()
     t_init = time.time()
+    selected_idxs = np.array([])
     for peak_ind in peaks_subsamp:
         idxs_spike = np.arange(peak_ind - sample_window[0], peak_ind + sample_window[1])
-        selected_idxs = selected_idxs.union(set(idxs_spike))
-
+        # selected_idxs = np.concatenate((selected_idxs, np.arange(peak_ind - sample_window[0], peak_ind + sample_window[1])))
+        selected_idxs = selected_idxs.union(set(idxs_spike)) #concatenate, unique, sorted
+    # selected_idxs = np.sort(np.unique(selected_idxs))
     t_end = time.time() - t_init
 
-    selected_idxs = np.array(list(selected_idxs))
+    selected_idxs = np.array(sorted(list(selected_idxs)))
     selected_idxs = selected_idxs[selected_idxs > 1]
     selected_idxs = selected_idxs[selected_idxs < recording.get_num_samples(0) - 1]
 
+    cut_traces = None
+
+    if percent_spikes is not None:
+        for res in np.split(selected_idxs, np.where(np.diff(selected_idxs) != 1)[0]+1):
+            traces = recording.get_traces(start_frame=res[0], end_frame=res[-1]).astype("int16")
+            if cut_traces is None:
+                cut_traces = traces
+            else:
+                cut_traces = np.vstack((cut_traces, traces))
+        cut_traces = cut_traces.T
+    else:
+        cut_traces = recording.get_traces().astype('int16').T[:, selected_idxs]
+
     print(f"Sample number for ICA: {len(selected_idxs)} from {recording.get_num_samples(0)}\nElapsed time: {t_end}")
 
-    cut_traces = traces[:, selected_idxs]
+    # cut_traces = traces[:, selected_idxs]
+    cut_traces = np.asarray(cut_traces)
+    print(f"Shape: {cut_traces.shape}")
 
     return cut_traces, selected_idxs, peaks_subsamp
 
@@ -177,7 +190,8 @@ class Mask:
     sample_window = []
 
     def __init__(self, recording, traces, fs, sample_window_ms=2, percent_spikes=None,
-                 max_num_spikes=None, balance_spikes_on_channel=False):
+                 max_num_spikes=None, balance_spikes_on_channel=False, run_in_parallel=False,
+                 n_jobs=None):
         self.recording = recording
         self.traces = traces
         self.fs = fs
@@ -185,13 +199,13 @@ class Mask:
         self.percent_spikes = percent_spikes
         self.max_num_spikes = max_num_spikes
         self.balance_spikes_on_channel = balance_spikes_on_channel
+        self.run_in_parallel = run_in_parallel
+        self.n_jobs = n_jobs
+        self.selected_idxs = set()
 
-    def run(self):
-        import multiprocessing as mp
-        import concurrent.futures as cf
-
+    def __call__(self):
         if self.sample_window_ms is None:
-            return self.traces, None, None
+            return
 
         # set sample window
         if isinstance(self.sample_window_ms, float) or isinstance(self.sample_window_ms, int):
@@ -203,7 +217,7 @@ class Mask:
         # subsampling
         if self.percent_spikes is not None:
             if self.max_num_spikes is not None and self.percent_spikes * len(peaks['sample_ind']) > self.max_num_spikes:
-                percent_spikes = self.max_num_spikes / len(peaks['sample_ind'])
+                self.percent_spikes = self.max_num_spikes / len(peaks['sample_ind'])
             if self.balance_spikes_on_channel:
                 final_idxs = []
                 for chan in np.arange(num_channels):
@@ -213,33 +227,52 @@ class Mask:
                     idxs = np.random.choice(idxs, int(num_samples))
                     final_idxs.extend(list(idxs))
                 final_idxs = sorted(final_idxs)
-                peaks_subsamp = peaks['sample_ind'][final_idxs]
-                print(len(peaks_subsamp))
+                self.peaks_subsamp = peaks['sample_ind'][final_idxs]
+                print(len(self.peaks_subsamp))
             else:
                 num_samples = len(peaks['sample_ind']) * self.percent_spikes
-                peaks_subsamp = np.random.choice(peaks['sample_ind'], int(num_samples))
-                print(len(peaks_subsamp))
+                self.peaks_subsamp = np.random.choice(peaks['sample_ind'], int(num_samples))
+                print(len(self.peaks_subsamp))
         else:
-            peaks_subsamp = peaks['sample_ind']
+            self.peaks_subsamp = peaks['sample_ind']
 
         t_init = time.time()
-        manager = mp.Manager()
-        selected_idxs = manager.list()
-        n_jobs = mp.cpu_count()
-        executor = cf.ProcessPoolExecutor(max_workers=n_jobs, initializer=init_f, initargs=(self.sample_window, ))
-        executor.map(mask, peaks_subsamp)
+        if not self.run_in_parallel:
+            for peak_ind in self.peaks_subsamp:
+                idxs_spike = np.arange(peak_ind - self.sample_window[0], peak_ind + self.sample_window[1])
+                self.selected_idxs = self.selected_idxs.union(set(idxs_spike))
+        else:
+            self.selected_idxs = _run_parallel(self.n_jobs, self.sample_window, self.peaks_subsamp)
 
         t_end = time.time() - t_init
 
-        selected_idxs = np.array(list(selected_idxs))
-        selected_idxs = selected_idxs[selected_idxs > 1]
-        selected_idxs = selected_idxs[selected_idxs < self.recording.get_num_samples(0) - 1]
+        self.selected_idxs = np.array(list(self.selected_idxs))
+        self.selected_idxs = self.selected_idxs[self.selected_idxs > 1]
+        self.selected_idxs = self.selected_idxs[self.selected_idxs < self.recording.get_num_samples(0) - 1]
 
-        print(f"Sample number for ICA: {len(selected_idxs)} from {self.recording.get_num_samples(0)}\nElapsed time: {t_end}")
+        print(f"Sample number for ICA: {len(self.selected_idxs)} from {self.recording.get_num_samples(0)}"
+              f"\nElapsed time: {t_end}")
 
-        cut_traces = self.traces[:, selected_idxs]
+        self.traces = self.traces[:, self.selected_idxs]
 
-        return cut_traces, selected_idxs, peaks_subsamp
+
+def _run_parallel(n_jobs, sample_window, peaks):
+    import multiprocessing as mp
+    if n_jobs is None:
+        n_jobs = mp.cpu_count()
+    selected_idxs = set()
+    p = mp.Pool(n_jobs, initializer=init_f, initargs=sample_window)
+    selected_idxs = selected_idxs.union(p.imap(_find_idxs, peaks, chunksize=100))
+    return selected_idxs
+
+
+def _find_idxs(peaks):
+    global _sample_window
+    selected_idxs = set()
+    for peak_ind in peaks:
+        idxs_spike = np.arange(peak_ind - _sample_window[0], peak_ind + _sample_window[1])
+        selected_idxs = selected_idxs.union(set(idxs_spike))
+    return selected_idxs
 
 
 global _sample_window
@@ -248,9 +281,3 @@ global _sample_window
 def init_f(sample_window):
     global _sample_window
     _sample_window = sample_window
-
-
-def mask(peak_ind):
-    global _sample_window
-    idxs_spike = np.arange(peak_ind - _sample_window[0], peak_ind + _sample_window[1])
-    selected_idxs = selected_idxs.union(set(idxs_spike))
