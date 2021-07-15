@@ -16,7 +16,7 @@ def ica_spike_sorting(recording, clustering='mog', n_comp='all',
                       features='amp', skew_thresh=0.2, kurt_thresh=1,
                       n_chunks=0, chunk_size=0, spike_thresh=5, dtype='int16',
                       keep_all_clusters=False, sample_window_ms=2, percent_spikes=None,
-                      balance_spikes_on_channel=False, max_num_spikes=None, verbose=True):
+                      balance_spikes_on_channel=False, max_num_spikes=None, verbose=True, use_lambda=True):
     if not isinstance(recording, BaseRecording):
         raise Exception("Input a RecordingExtractor object!")
 
@@ -24,9 +24,9 @@ def ica_spike_sorting(recording, clustering='mog', n_comp='all',
         n_comp = recording.get_num_channels()
     fs = recording.get_sampling_frequency()
     traces = recording.get_traces().astype(dtype).T
-    cut_traces, idx, peaks = ss.mask_traces(recording, traces, fs, sample_window_ms=sample_window_ms,
+    cut_traces, idx, peaks = ss.mask_traces(recording, fs, sample_window_ms=sample_window_ms,
                                             max_num_spikes=max_num_spikes, percent_spikes=percent_spikes,
-                                            balance_spikes_on_channel=balance_spikes_on_channel)
+                                            balance_spikes_on_channel=balance_spikes_on_channel, use_lambda=use_lambda)
     # mask = ss.Mask(recording, traces, fs, sample_window_ms=sample_window_ms,
     #                percent_spikes=percent_spikes, max_num_spikes=max_num_spikes,
     #                balance_spikes_on_channel=balance_spikes_on_channel)
@@ -63,7 +63,7 @@ def ica_spike_sorting(recording, clustering='mog', n_comp='all',
 
     # TODO add spike properties and features
 
-    return sorting  # , cleaned_sources_ica
+    return sorting, idx, peaks  # , cleaned_sources_ica
 
 
 def orica_spike_sorting(recording, clustering='mog', n_comp='all',

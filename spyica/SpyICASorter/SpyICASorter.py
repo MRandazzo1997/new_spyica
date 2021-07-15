@@ -83,9 +83,9 @@ def set_times_labels(sst, fs):
     return NumpySorting.from_times_labels(times.astype(int), labels, fs)
 
 
-def mask_traces(recording, traces, fs, sample_window_ms=2,
+def mask_traces(recording, fs, sample_window_ms=2,
                 percent_spikes=None, max_num_spikes=None,
-                balance_spikes_on_channel=False):
+                balance_spikes_on_channel=False, use_lambda=True):
     """
     Find mask based on spike peaks
 
@@ -93,8 +93,6 @@ def mask_traces(recording, traces, fs, sample_window_ms=2,
     ----------
     recording: si.RecordingExtractor
         The input recording extractor
-    traces: np.array(channels, num_samples)
-        Traces extracted from recording
     fs: float
         Sampling frequency
     sample_window_ms: float, int, list, or None
@@ -110,6 +108,7 @@ def mask_traces(recording, traces, fs, sample_window_ms=2,
     balance_spikes_on_channel: bool
         If true, the number of samples taken from each channel depends on the total number of spikes on the channel
         If false, random subsampling
+    use_lambda
     Returns
     -------
     cut_traces: numpy array
@@ -150,14 +149,15 @@ def mask_traces(recording, traces, fs, sample_window_ms=2,
     print(f"Number of sampled spikes: {len(peaks_subsamp)}")
 
     # find idxs
-    selected_idxs = set()
     t_init = time.time()
-    selected_idxs = np.array([])
-    for peak_ind in peaks_subsamp:
-        idxs_spike = np.arange(peak_ind - sample_window[0], peak_ind + sample_window[1])
-        # selected_idxs = np.concatenate((selected_idxs, np.arange(peak_ind - sample_window[0], peak_ind + sample_window[1])))
-        selected_idxs = selected_idxs.union(set(idxs_spike)) #concatenate, unique, sorted
-    # selected_idxs = np.sort(np.unique(selected_idxs))
+    if use_lambda:
+        idxs_spike_low = map(lambda peak: np.arange(peak - sample_window[0], peak + sample_window[1]), peaks_subsamp)
+        selected_idxs = np.unique(list(idxs_spike_low))
+    else:
+        selected_idxs = np.array([], dtype=int)
+        for peak_ind in peaks_subsamp:
+            selected_idxs = np.concatenate((selected_idxs, np.arange(peak_ind - sample_window[0], peak_ind + sample_window[1])), dtype=int)
+        selected_idxs = np.sort(np.unique(selected_idxs))
     t_end = time.time() - t_init
 
     selected_idxs = np.array(sorted(list(selected_idxs)))
@@ -184,100 +184,3 @@ def mask_traces(recording, traces, fs, sample_window_ms=2,
     print(f"Shape: {cut_traces.shape}")
 
     return cut_traces, selected_idxs, peaks_subsamp
-
-
-class Mask:
-    sample_window = []
-
-    def __init__(self, recording, traces, fs, sample_window_ms=2, percent_spikes=None,
-                 max_num_spikes=None, balance_spikes_on_channel=False, run_in_parallel=False,
-                 n_jobs=None):
-        self.recording = recording
-        self.traces = traces
-        self.fs = fs
-        self.sample_window_ms = sample_window_ms
-        self.percent_spikes = percent_spikes
-        self.max_num_spikes = max_num_spikes
-        self.balance_spikes_on_channel = balance_spikes_on_channel
-        self.run_in_parallel = run_in_parallel
-        self.n_jobs = n_jobs
-        self.selected_idxs = set()
-
-    def __call__(self):
-        if self.sample_window_ms is None:
-            return
-
-        # set sample window
-        if isinstance(self.sample_window_ms, float) or isinstance(self.sample_window_ms, int):
-            self.sample_window_ms = [self.sample_window_ms, self.sample_window_ms]
-        self.sample_window = [int(self.sample_window_ms[0] * self.fs), int(self.sample_window_ms[1] * self.fs)]
-        num_channels = self.recording.get_num_channels()
-        peaks = sc.detect_peaks(self.recording)
-
-        # subsampling
-        if self.percent_spikes is not None:
-            if self.max_num_spikes is not None and self.percent_spikes * len(peaks['sample_ind']) > self.max_num_spikes:
-                self.percent_spikes = self.max_num_spikes / len(peaks['sample_ind'])
-            if self.balance_spikes_on_channel:
-                final_idxs = []
-                for chan in np.arange(num_channels):
-                    occurrences = list(peaks['channel_ind']).count(chan)
-                    num_samples = occurrences * self.percent_spikes
-                    idxs = np.where(peaks['channel_ind'] == chan)[0]
-                    idxs = np.random.choice(idxs, int(num_samples))
-                    final_idxs.extend(list(idxs))
-                final_idxs = sorted(final_idxs)
-                self.peaks_subsamp = peaks['sample_ind'][final_idxs]
-                print(len(self.peaks_subsamp))
-            else:
-                num_samples = len(peaks['sample_ind']) * self.percent_spikes
-                self.peaks_subsamp = np.random.choice(peaks['sample_ind'], int(num_samples))
-                print(len(self.peaks_subsamp))
-        else:
-            self.peaks_subsamp = peaks['sample_ind']
-
-        t_init = time.time()
-        if not self.run_in_parallel:
-            for peak_ind in self.peaks_subsamp:
-                idxs_spike = np.arange(peak_ind - self.sample_window[0], peak_ind + self.sample_window[1])
-                self.selected_idxs = self.selected_idxs.union(set(idxs_spike))
-        else:
-            self.selected_idxs = _run_parallel(self.n_jobs, self.sample_window, self.peaks_subsamp)
-
-        t_end = time.time() - t_init
-
-        self.selected_idxs = np.array(list(self.selected_idxs))
-        self.selected_idxs = self.selected_idxs[self.selected_idxs > 1]
-        self.selected_idxs = self.selected_idxs[self.selected_idxs < self.recording.get_num_samples(0) - 1]
-
-        print(f"Sample number for ICA: {len(self.selected_idxs)} from {self.recording.get_num_samples(0)}"
-              f"\nElapsed time: {t_end}")
-
-        self.traces = self.traces[:, self.selected_idxs]
-
-
-def _run_parallel(n_jobs, sample_window, peaks):
-    import multiprocessing as mp
-    if n_jobs is None:
-        n_jobs = mp.cpu_count()
-    selected_idxs = set()
-    p = mp.Pool(n_jobs, initializer=init_f, initargs=sample_window)
-    selected_idxs = selected_idxs.union(p.imap(_find_idxs, peaks, chunksize=100))
-    return selected_idxs
-
-
-def _find_idxs(peaks):
-    global _sample_window
-    selected_idxs = set()
-    for peak_ind in peaks:
-        idxs_spike = np.arange(peak_ind - _sample_window[0], peak_ind + _sample_window[1])
-        selected_idxs = selected_idxs.union(set(idxs_spike))
-    return selected_idxs
-
-
-global _sample_window
-
-
-def init_f(sample_window):
-    global _sample_window
-    _sample_window = sample_window
