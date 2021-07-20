@@ -23,50 +23,45 @@ def ica_spike_sorting(recording, clustering='mog', n_comp='all',
 
     if n_comp == 'all':
         n_comp = recording.get_num_channels()
-    fs = recording.get_sampling_frequency()
-    traces = recording.get_traces().astype(dtype).T
-    cut_traces, idx, peaks = ss.mask_traces(recording, fs, sample_window_ms=sample_window_ms,
-                                            max_num_spikes=max_num_spikes, percent_spikes=percent_spikes,
-                                            balance_spikes_on_channel=balance_spikes_on_channel,
-                                            use_lambda=use_lambda)
-    # mask = ss.Mask(recording, traces, fs, sample_window_ms=sample_window_ms,
-    #                percent_spikes=percent_spikes, max_num_spikes=max_num_spikes,
-    #                balance_spikes_on_channel=balance_spikes_on_channel)
-    # cut_traces, idx, peaks = mask.run()
+
+    sorter = ss.SpyICASorter(recording)
+    sorter.mask_traces(sample_window_ms=sample_window_ms, percent_spikes=percent_spikes,
+                       balance_spikes_on_channel=balance_spikes_on_channel,
+                       max_num_spikes=max_num_spikes,
+                       use_lambda=use_lambda)
 
     t_init = time.time()
-    scut_ica, A_ica, W_ica = \
-        ss.compute_ica(cut_traces, n_comp, n_chunks=n_chunks, chunk_size=chunk_size,
+    sorter.compute_ica(n_comp, n_chunks=n_chunks, chunk_size=chunk_size,
                        verbose=verbose, max_iter=max_iter)
     if verbose:
         t_ica = time.time() - t_init
         print('FastICA completed in: ', t_ica)
 
-    s_ica = np.matmul(W_ica, traces)
+    traces = recording.get_traces().astype(dtype).T
+    sorter.s_ica = np.matmul(sorter.W_ica, traces)
 
-    cleaned_sources_ica, cleaned_A_ica, cleaned_W_ica, source_idx = \
-        ss.clean_sources_ica(s_ica, A_ica, W_ica, kurt_thresh=kurt_thresh, skew_thresh=skew_thresh, verbose=verbose)
+    sorter.clean_sources_ica(kurt_thresh=kurt_thresh, skew_thresh=skew_thresh, verbose=verbose)
 
-    sst, independent_spike_idx = ss.cluster(traces, fs, cleaned_sources_ica, recording.get_num_frames(0),
-                                            clustering, spike_thresh, keep_all_clusters, features, verbose)
+    sorter.cluster(recording.get_num_frames(0),
+                   clustering, spike_thresh, keep_all_clusters, features, verbose)
 
-    if 'ica_source' in sst[0].annotations.keys():
-        independent_spike_idx = [s.annotations['ica_source'] for s in sst]
+    if 'ica_source' in sorter.sst[0].annotations.keys():
+        sorter.independent_spike_idx = [s.annotations['ica_source'] for s in sorter.sst]
 
-    ica_spike_sources_idx = source_idx[independent_spike_idx]
-    ica_spike_sources = cleaned_sources_ica[independent_spike_idx]
-    A_spike_sources = cleaned_A_ica[independent_spike_idx]
-    W_spike_sources = cleaned_W_ica[independent_spike_idx]
+    ica_spike_sources_idx = sorter.source_idx[sorter.independent_spike_idx]
+    ica_spike_sources = sorter.cleaned_sources_ica[sorter.independent_spike_idx]
+    A_spike_sources = sorter.cleaned_A_ica[sorter.independent_spike_idx]
+    W_spike_sources = sorter.cleaned_W_ica[sorter.independent_spike_idx]
 
     processing_time = time.time() - t_init
     if verbose:
         print('Elapsed time: ', processing_time)
 
-    sorting = ss.set_times_labels(sst, fs)
+    sorting = sorter.set_times_labels()
 
     # TODO add spike properties and features
 
-    return sorting, idx, peaks  # , cleaned_sources_ica
+    return sorting, sorter  # , cleaned_sources_ica
 
 
 def orica_spike_sorting(recording, clustering='mog', n_comp='all',

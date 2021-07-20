@@ -1,4 +1,5 @@
 # Helper functions
+from __future__ import division
 
 import numpy as np
 import quantities as pq
@@ -28,7 +29,7 @@ def whiten_data(X, n_comp=None):
 
     '''
     # whiten data
-    if n_comp==None:
+    if n_comp == None:
         n_comp = np.min(X.shape)
 
     n_feat, n_samples = X.shape
@@ -44,7 +45,7 @@ def whiten_data(X, n_comp=None):
 
 ############ SPYICA ######################
 
-#TODO remove neo
+# TODO remove neo
 
 def detect_and_align(sources, fs, recordings, t_start=None, t_stop=None, n_std=5, ref_period_ms=2, n_pad_ms=2,
                      upsample=8):
@@ -90,7 +91,7 @@ def detect_and_align(sources, fs, recordings, t_start=None, t_stop=None, n_std=5
 
         for i_t, t in enumerate(intervals):
             idx = idx_spike[i_t]
-            if t > 1 or i_t == len(intervals)-1:
+            if t > 1 or i_t == len(intervals) - 1:
                 if idx - n_pad > 0 and idx + n_pad < len(s):
                     spike = s[idx - n_pad:idx + n_pad]
                     # t_spike = times[idx - n_pad:idx + n_pad]
@@ -115,7 +116,7 @@ def detect_and_align(sources, fs, recordings, t_start=None, t_stop=None, n_std=5
 
                 if first_spike:
                     nsamples = len(spike)
-                    nsamples_up = nsamples*upsample
+                    nsamples_up = nsamples * upsample
                     first_spike = False
 
                 # upsample and find minimum
@@ -136,7 +137,7 @@ def detect_and_align(sources, fs, recordings, t_start=None, t_stop=None, n_std=5
                 min_time = t_spike[min_idx]
 
                 # align waveform
-                shift = nsamples_up//2 - min_idx_up
+                shift = nsamples_up // 2 - min_idx_up
                 if shift > 0:
                     spike_up = np.pad(spike_up, (np.abs(shift), 0), 'constant')[:nsamples_up]
                 elif shift < 0:
@@ -159,11 +160,11 @@ def detect_and_align(sources, fs, recordings, t_start=None, t_stop=None, n_std=5
             for i, sp in enumerate(sp_times):
                 if sp < t_start.rescale('s').magnitude * fs:
                     sp_times[i] = t_start.rescale('s').magnitude * fs
-                if  sp > t_stop.rescale('s').magnitude * fs:
+                if sp > t_stop.rescale('s').magnitude * fs:
                     sp_times[i] = t_stop.rescale('s').magnitude * fs
         elif t_stop:
             for i, sp in enumerate(sp_times):
-                if  sp > t_stop.rescale('s').magnitude * fs:
+                if sp > t_stop.rescale('s').magnitude * fs:
                     sp_times[i] = t_stop.rescale('s').magnitude * fs
         else:
             t_start = 0 * pq.s
@@ -177,6 +178,7 @@ def detect_and_align(sources, fs, recordings, t_start=None, t_stop=None, n_std=5
         idx_sources.append(s_idx)
 
     return spike_trains
+
 
 # todo use spikeinterfce NumpyExtractor and sorting extractor
 def extract_wf(sst, recordings, times, fs, upsample=8, ica=False, sources=[]):
@@ -213,7 +215,7 @@ def extract_wf(sst, recordings, times, fs, upsample=8, ica=False, sources=[]):
             first_spike = True
 
             for t in st:
-                idx = np.where(times>t)[0][0]
+                idx = np.where(times > t)[0][0]
                 # find single waveforms crossing thresholds
                 if idx - n_pad > 0 and idx + n_pad < nPts:
                     spike = s[idx - n_pad:idx + n_pad]
@@ -236,7 +238,7 @@ def extract_wf(sst, recordings, times, fs, upsample=8, ica=False, sources=[]):
 
                 if first_spike:
                     nsamples = len(spike)
-                    nsamples_up = nsamples*upsample
+                    nsamples_up = nsamples * upsample
                     first_spike = False
 
                 min_ic_amp = np.min(spike)
@@ -345,7 +347,7 @@ def reject_duplicate_spiketrains(sst, percent_threshold=0.5, min_spikes=3, sourc
                     idx_sources.append(i)
             else:
                 # Keep spike train with largest number of spikes among duplicates
-                idxs = np.argwhere(duplicates==i)
+                idxs = np.argwhere(duplicates == i)
                 max_len = []
                 c_max = 0
                 st_idx = []
@@ -372,7 +374,7 @@ def reject_duplicate_spiketrains(sst, percent_threshold=0.5, min_spikes=3, sourc
     return spike_trains, idx_sources, duplicates
 
 
-def find_duplicates(i, sp_times, sst, percent_threshold=0.5, t_jitt=1*pq.ms):
+def find_duplicates(i, sp_times, sst, percent_threshold=0.5, t_jitt=1 * pq.ms):
     counts = []
     duplicates = []
     for j, sp in enumerate(sst):
@@ -459,7 +461,8 @@ def clean_sources(sources, kurt_thresh=0.7, skew_thresh=0.5, remove_correlated=T
     # invert sources with positive skewness
     spike_sources[sk_sp > 0] = -spike_sources[sk_sp > 0]
 
-    return spike_sources, idxs #, corr_idx, corr, mi
+    return spike_sources, idxs  # , corr_idx, corr, mi
+
 
 # TODO use isosplit and cluster waveforms from all ICs to spot duplicates
 # TODO return IC_templates
@@ -505,11 +508,11 @@ def cluster_spike_amplitudes(sst, metric='cal', min_sihlo=0.8, min_cal=100, max_
 
             if len(amps) > 2:
                 for k in range(2, max_clusters):
-                    if alg=='kmeans':
+                    if alg == 'kmeans':
                         kmeans_new = KMeans(n_clusters=k, random_state=0)
                         kmeans_new.fit(amps.reshape(-1, 1))
                         labels_new = kmeans_new.predict(amps.reshape(-1, 1))
-                    elif alg=='mog':
+                    elif alg == 'mog':
                         gmm_new = GaussianMixture(n_components=k, covariance_type='full')
                         gmm_new.fit(amps.reshape(-1, 1))
                         labels_new = gmm_new.predict(amps.reshape(-1, 1))
@@ -527,7 +530,7 @@ def cluster_spike_amplitudes(sst, metric='cal', min_sihlo=0.8, min_cal=100, max_
                                     gmm = gmm_new
                                 labels = labels_new
                             else:
-                                keep_going=False
+                                keep_going = False
                         elif metric == 'cal':
                             if cal_har_new > cal_har:
                                 cal_har = cal_har_new
@@ -538,9 +541,9 @@ def cluster_spike_amplitudes(sst, metric='cal', min_sihlo=0.8, min_cal=100, max_
                                     gmm = gmm_new
                                 labels = labels_new
                             else:
-                                keep_going=False
+                                keep_going = False
                     else:
-                        keep_going=False
+                        keep_going = False
                         nclusters[i] = 1
 
                     if not keep_going:
@@ -562,7 +565,7 @@ def cluster_spike_amplitudes(sst, metric='cal', min_sihlo=0.8, min_cal=100, max_
                                     keep_id.append(idxs)
                             else:
                                 highest_clust = np.argmin(kmeans.cluster_centers_)
-                                highest_idx = np.where(labels==highest_clust)[0]
+                                highest_idx = np.where(labels == highest_clust)[0]
                                 reduced_sst.append(sst[i][highest_idx])
                                 reduced_amps.append(amps[highest_idx])
                                 keep_id.append(highest_idx)
@@ -619,7 +622,7 @@ def cluster_spike_amplitudes(sst, metric='cal', min_sihlo=0.8, min_cal=100, max_
                 reduced_sst.append(red_spikes)
                 reduced_amps.append(amps)
                 keep_id.append(range(len(sst[i])))
-    #TODO keep cluster with largest amplitude (compute amplitudes)
+    # TODO keep cluster with largest amplitude (compute amplitudes)
     elif features == 'pca':
         for i, wf in enumerate(spike_wf):
             # apply pca on ica_wf
@@ -774,33 +777,35 @@ def cluster_spike_amplitudes(sst, metric='cal', min_sihlo=0.8, min_cal=100, max_
 
     return reduced_sst, reduced_amps, nclusters, keep_id, score
 
+
 def template_matching(sources, ic_templates):
     pass
+
 
 def matcorr(x, y, rmmean=False, weighting=None):
     from scipy.optimize import linear_sum_assignment
 
     m, n = x.shape
     p, q = y.shape
-    m = np.min([m,p])
+    m = np.min([m, p])
 
-    if m != n or  p!=q:
+    if m != n or p != q:
         # print 'matcorr(): Matrices are not square: using max abs corr method (2).'
         method = 2
 
     if n != q:
-      raise Exception('Rows in the two input matrices must be the same length.')
+        raise Exception('Rows in the two input matrices must be the same length.')
 
     if rmmean:
-      x = x - np.mean(x, axis=1) # optionally remove means
-      y = y - np.mean(y, axis=1)
+        x = x - np.mean(x, axis=1)  # optionally remove means
+        y = y - np.mean(y, axis=1)
 
-    dx = np.sum(x**2, axis=1)
-    dy = np.sum(y**2, axis=1)
-    dx[np.where(dx==0)] = 1
-    dy[np.where(dy==0)] = 1
+    dx = np.sum(x ** 2, axis=1)
+    dy = np.sum(y ** 2, axis=1)
+    dx[np.where(dx == 0)] = 1
+    dy[np.where(dy == 0)] = 1
     # raise Exception()
-    corrs = np.matmul(x, y.T)/np.sqrt(dx[:, np.newaxis]*dy[np.newaxis, :])
+    corrs = np.matmul(x, y.T) / np.sqrt(dx[:, np.newaxis] * dy[np.newaxis, :])
 
     if weighting != None:
         if any(corrs.shape != weighting.shape):
@@ -834,15 +839,16 @@ def evaluate_PI(ic_unmix, gt_mix):
 
     '''
     H = np.matmul(ic_unmix, gt_mix)
-    C = H**2
+    C = H ** 2
     N = np.min([gt_mix.shape[0], ic_unmix.shape[0]])
 
-    PI = (N - 0.5*(np.sum(np.max(C, axis=0)/np.sum(C, axis=0)) + np.sum(np.max(C, axis=1)/np.sum(C, axis=1))))/(N-1)
+    PI = (N - 0.5 * (np.sum(np.max(C, axis=0) / np.sum(C, axis=0)) + np.sum(np.max(C, axis=1) / np.sum(C, axis=1)))) / (
+            N - 1)
 
     return PI, C
 
 
-def evaluate_sum_CC(ic_mix, gt_mix, ic_sources, gt_sources, n_sources): # ):
+def evaluate_sum_CC(ic_mix, gt_mix, ic_sources, gt_sources, n_sources):  # ):
     '''
 
     Parameters
@@ -866,12 +872,12 @@ def evaluate_sum_CC(ic_mix, gt_mix, ic_sources, gt_sources, n_sources): # ):
     #
     # corr_cross_mix = corr_mix[id_sources:, :id_sources] ** 2
     # corr_cross_sources = corr_sources[id_sources:, :id_sources] ** 2
-    corr_cross_mix = corr_m**2
-    corr_cross_sources = corr_s**2
+    corr_cross_mix = corr_m ** 2
+    corr_cross_sources = corr_s ** 2
 
-    mix_CC_mean_gt = np.trace(corr_cross_mix)/n_sources
-    mix_CC_mean_id = np.trace(corr_cross_mix)/len(ic_sources)
-    sources_CC_mean = np.trace(corr_cross_sources)/n_sources
+    mix_CC_mean_gt = np.trace(corr_cross_mix) / n_sources
+    mix_CC_mean_id = np.trace(corr_cross_mix) / len(ic_sources)
+    sources_CC_mean = np.trace(corr_cross_sources) / n_sources
 
     return mix_CC_mean_gt, mix_CC_mean_id, sources_CC_mean, corr_cross_mix, corr_cross_sources
 
@@ -888,7 +894,7 @@ def find_consistent_sorces(source_idx, thresh=0.5):
     -------
 
     '''
-    len_no_empty = len([s for s in source_idx if len(s)>0])
+    len_no_empty = len([s for s in source_idx if len(s) > 0])
 
     s_dict = {}
     for s in source_idx:
@@ -900,7 +906,7 @@ def find_consistent_sorces(source_idx, thresh=0.5):
 
     consistent_sources = []
     for id in s_dict.keys():
-        if s_dict[id] >= thresh*len_no_empty:
+        if s_dict[id] >= thresh * len_no_empty:
             consistent_sources.append(id)
 
     return np.sort(consistent_sources)
@@ -937,3 +943,25 @@ def threshold_spike_sorting(recordings, threshold):
             spikes.update({i_rec: sp_times})
 
     return spikes
+
+
+import scipy.signal as ss
+
+
+def compute_SNR(signal, threshold, cutoff=1000, fs=32000, order=2, method='filt'):
+    if method == 'rms':
+        noise_rms = []
+        signal_rms = []
+        for chan in range(len(signal[:, 0])):
+            noise = signal[chan, np.where(signal[chan, :] < threshold) and signal[chan, :] > -threshold]
+            noise_rms.append(np.sqrt(np.mean(np.square(noise))))
+            signal_rms.append(np.sqrt(np.mean(np.square(signal[chan, :]))))
+        return [x / y for x, y in zip(signal_rms, noise_rms)], None
+    elif method == 'filt':
+        nyq = 0.5 * fs
+        b, a = ss.butter(order, cutoff / nyq, btype='low', analog=False, output='ba')
+        filt_signal = ss.filtfilt(b, a, signal, axis=1)
+        noise = signal - filt_signal
+        signal_rms = np.sqrt(np.mean(np.square(signal), axis=1, keepdims=True))
+        noise_rms = np.sqrt((np.mean(np.square(noise), axis=1, keepdims=True)))
+        return signal_rms / noise_rms, filt_signal
