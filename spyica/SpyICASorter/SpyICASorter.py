@@ -70,6 +70,7 @@ class SpyICASorter:
         num_channels = self.recording.get_num_channels()
         peaks = sc.detect_peaks(self.recording, progress_bar=True)
 
+        t_init = time.time()
         # subsampling
         if percent_spikes is not None:
             if max_num_spikes is not None and percent_spikes * len(peaks['sample_ind']) > max_num_spikes:
@@ -89,12 +90,14 @@ class SpyICASorter:
                 self.peaks_subsamp = np.random.choice(peaks['sample_ind'], int(num_samples))
         else:
             self.peaks_subsamp = peaks['sample_ind']
+        t_end = time.time() - t_init
 
         print(f"Number of detected spikes: {len(peaks['sample_ind'])}")
         print(f"Number of sampled spikes: {len(self.peaks_subsamp)}")
+        print(f"Elapsed time subsampling: {t_end}")
 
         # find idxs
-        t_init = time.time()
+        t_init2 = time.time()
         if use_lambda:
             idxs_spike = map(lambda peak: np.arange(peak - sample_window[0], peak + sample_window[1]),
                              self.peaks_subsamp)
@@ -106,12 +109,14 @@ class SpyICASorter:
                     (self.selected_idxs, np.arange(peak_ind - sample_window[0], peak_ind + sample_window[1])),
                     dtype=int)
             self.selected_idxs = np.sort(np.unique(self.selected_idxs))
-        t_end = time.time() - t_init
+        t_end2 = time.time() - t_init2
+        print(f"Elapsed time idxs selection: {t_end2}")
 
         self.selected_idxs = np.array(sorted(list(self.selected_idxs)))
         self.selected_idxs = self.selected_idxs[self.selected_idxs > 1]
         self.selected_idxs = self.selected_idxs[self.selected_idxs < self.recording.get_num_samples(0) - 1]
 
+        t_init3 = time.time()
         if percent_spikes is not None:
             for res in np.split(self.selected_idxs, np.where(np.diff(self.selected_idxs) != 1)[0] + 1):
                 traces = self.recording.get_traces(start_frame=res[0], end_frame=res[-1]).astype("int16")
@@ -122,9 +127,10 @@ class SpyICASorter:
             self.cut_traces = self.cut_traces.T
         else:
             self.cut_traces = self.recording.get_traces().astype('int16').T[:, self.selected_idxs]
+        t_end3 = time.time() - t_init3
 
         print(f"Sample number for ICA: {len(self.selected_idxs)} from {self.recording.get_num_samples(0)}\n"
-              f"Elapsed time: {t_end}")
+              f"Elapsed time getting traces: {t_end3}")
 
         # cut_traces = traces[:, selected_idxs]
         self.cut_traces = np.asarray(self.cut_traces)
