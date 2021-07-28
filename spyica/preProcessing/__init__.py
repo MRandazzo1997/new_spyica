@@ -1,1 +1,1 @@
-from .preProcessing import ica_on_recording
+from .preProcessing import lin_filter

@@ -1,55 +1,74 @@
 import numpy as np
 from spikeinterface.toolkit.preprocessing.basepreprocessor import BasePreprocessor, BasePreprocessorSegment
-from ..SpyICASorter import SpyICASorter
-from spyica.tools import clean_sources
-from typing import List
-from spikeinterface.core.baserecording import BaseRecordingSegment
+from ..tools import clean_sources
+import warnings as w
 
 
-class ICAOnRecording(SpyICASorter, BasePreprocessor):
+class LinearMapFilter(BasePreprocessor):
+    name = 'Filter'
 
-    def __init__(self, recording, sample_window_ms, kurt_thresh=1, skew_thresh=0.2, clean=True, **random_chunk_kwargs):
+    def __init__(self, recording, matrix, clean=True, kurt_thresh=1, skew_thresh=0.2):
+        self.recording = recording
+        if isinstance(matrix, np.ndarray):
+            self.M = [matrix]
+        else:
+            self.M = matrix
+        self._clean = clean
+        if isinstance(kurt_thresh, float) or isinstance(kurt_thresh, int):
+            kurt_thresh = [kurt_thresh]
+        if isinstance(skew_thresh, float) or isinstance(skew_thresh, int):
+            skew_thresh = [skew_thresh]
+        if not recording.get_num_channels() == self.M[0].shape[0]:
+            raise ArithmeticError(
+                f"Matrix first dimension must be equal to number of channels: {recording.get_num_channels()}"
+                f"It is: {self.M.shape[0]}")
+
         BasePreprocessor.__init__(self, recording)
-        SpyICASorter.__init__(self, recording)
-        self._recording_segments: List[BaseRecordingSegment] = []
-        self.mask_traces(sample_window_ms=sample_window_ms, percent_spikes=None,
-                         balance_spikes_on_channel=True)
-        self.compute_ica(n_comp='all')
-        for recording_segment in recording._recording_segments:
-            rec_segment = ICAOnRecordingSegment(recording_segment, self.W_ica, self.A_ica, clean=clean,
-                                                kurt_thres=kurt_thresh, skew_thresh=skew_thresh)
-            self.add_recording_segment(rec_segment)
+        for i, parent_segment in enumerate(recording._recording_segments):
+            segment = FilterRecordingSegment(parent_segment, self.M[i], skew_thresh[i], kurt_thresh[i], self._clean)
+            self.add_recording_segment(segment)
 
         self._kwargs = dict(recording=recording.to_dict())
-        self._kwargs.update(random_chunk_kwargs)
+
+    def get_num_channels(self, segment_index):
+        return len(self.get_channel_ids(segment_index))
+
+    def get_channel_ids(self, segment_index):
+        if self._recording_segments[segment_index].idxs is None:
+            if self._clean: w.warn("Linear filter hasn't been applied yet")
+            return self._main_ids
+        else:
+            return self._main_ids[self._recording_segments[segment_index].idxs]
+
+    def get_channel_locations(self, segment_index, channel_ids=None, locations_2d=True):
+        chan_locations = self.recording.get_channel_locations()
+        chan_locations = chan_locations[self._recording_segments[segment_index].idxs]
+        return chan_locations
 
 
-class ICAOnRecordingSegment(BasePreprocessorSegment):
-
-    def __init__(self, recording_segment, W, A, clean=True, kurt_thres=1, skew_thresh=0.2):
-        BasePreprocessorSegment.__init__(self, recording_segment)
-        self.W = W
-        self.A = A
-        self.clean = clean
-        self.kurt_thresh = kurt_thres
-        self.skew_thresh = skew_thresh
-        self.source_idx = None
+class FilterRecordingSegment(BasePreprocessorSegment):
+    def __init__(self, parent_segment, M, skew_thresh=0.1, kurt_thresh=1, clean=True):
+        BasePreprocessorSegment.__init__(self, parent_segment)
+        self.M = M
+        self._kurt_thresh = kurt_thresh
+        self._skew_thresh = skew_thresh
+        self._clean = clean
+        self.idxs = None
 
     def get_traces(self, start_frame, end_frame, channel_indices):
-        traces = self.parent_recording_segment.get_traces(start_frame, end_frame, slice(None))
-        ica_traces = np.matmul(self.W, traces.T)
-        ica_traces = ica_traces[:, channel_indices]
-        if self.clean:
-            cleaned_sources_ica, self.source_idx = clean_sources(ica_traces, kurt_thresh=self.kurt_thresh,
-                                                                 skew_thresh=self.skew_thresh)
+        traces = self.parent_recording_segment.get_traces(start_frame, end_frame, slice(None)).T
+        filtered_traces = self.M @ traces
+        filtered_traces = filtered_traces[channel_indices, :]
+        if self._clean:
+            cleaned_traces, self.idxs = clean_sources(filtered_traces, kurt_thresh=self._kurt_thresh,
+                                                      skew_thresh=self._skew_thresh)
         else:
-            cleaned_sources_ica = ica_traces
-        return cleaned_sources_ica
+            cleaned_traces = filtered_traces
+        return cleaned_traces
 
 
-def ica_on_recording(recording, sample_window_ms, kurt_thresh=1, skew_thresh=0.2):
-    return ICAOnRecording(recording, sample_window_ms, kurt_thresh=kurt_thresh,
-                          skew_thresh=skew_thresh, clean=True)
+def lin_filter(*args):
+    return LinearMapFilter(*args)
 
 
-ica_on_recording.__doc__ = ICAOnRecording.__doc__
+lin_filter.__doc__ = LinearMapFilter.__doc__

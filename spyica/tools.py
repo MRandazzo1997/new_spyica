@@ -945,23 +945,22 @@ def threshold_spike_sorting(recordings, threshold):
     return spikes
 
 
-import scipy.signal as ss
+from spyica.SpyICASorter.SpyICASorter import SpyICASorter
 
 
-def compute_SNR(signal, threshold, cutoff=1000, fs=32000, order=2, method='filt'):
-    if method == 'rms':
-        noise_rms = []
-        signal_rms = []
-        for chan in range(len(signal[:, 0])):
-            noise = signal[chan, np.where(signal[chan, :] < threshold) and signal[chan, :] > -threshold]
-            noise_rms.append(np.sqrt(np.mean(np.square(noise))))
-            signal_rms.append(np.sqrt(np.mean(np.square(signal[chan, :]))))
-        return [x / y for x, y in zip(signal_rms, noise_rms)], None
-    elif method == 'filt':
-        nyq = 0.5 * fs
-        b, a = ss.butter(order, cutoff / nyq, btype='low', analog=False, output='ba')
-        filt_signal = ss.filtfilt(b, a, signal, axis=1)
-        noise = signal - filt_signal
-        signal_rms = np.sqrt(np.mean(np.square(signal), axis=1, keepdims=True))
-        noise_rms = np.sqrt((np.mean(np.square(noise), axis=1, keepdims=True)))
-        return signal_rms / noise_rms, filt_signal
+def localize_sources(sorter, axis=1):
+    if not isinstance(sorter, SpyICASorter):
+        raise Exception("Import a SpyICASorter object")
+
+    recording = sorter.recording
+    idx = sorter.source_idx
+    chan_positions = recording.get_channel_locations()
+    if axis == 0:
+        matrix = np.abs(sorter.A_ica[:, idx])
+        s = np.sum(matrix, axis=axis)
+        coms = (matrix.T @ chan_positions) / s[:, np.newaxis]
+    else:
+        matrix = np.abs(sorter.A_ica[idx])
+        s = np.sum(matrix, axis=axis)
+        coms = (matrix @ chan_positions)/s[:, np.newaxis]
+    return coms

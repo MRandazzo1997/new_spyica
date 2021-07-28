@@ -17,7 +17,7 @@ def ica_spike_sorting(recording, clustering='mog', n_comp='all',
                       n_chunks=0, chunk_size=0, spike_thresh=5, dtype='int16',
                       keep_all_clusters=False, sample_window_ms=2, percent_spikes=None,
                       balance_spikes_on_channel=False, max_num_spikes=None, verbose=True,
-                      use_lambda=True, max_iter=200):
+                      use_lambda=True, max_iter=200, clean_before=False):
     if not isinstance(recording, BaseRecording):
         raise Exception("Input a RecordingExtractor object!")
 
@@ -37,10 +37,15 @@ def ica_spike_sorting(recording, clustering='mog', n_comp='all',
         t_ica = time.time() - t_init
         print('FastICA completed in: ', t_ica)
 
-    traces = recording.get_traces().astype(dtype).T
-    sorter.s_ica = np.matmul(sorter.W_ica, traces)
+    if clean_before:
+        sorter.clean_sources_ica(kurt_thresh=kurt_thresh, skew_thresh=skew_thresh, verbose=verbose)
+        traces = recording.get_traces(channel_ids=[str(x+1) for x in sorter.source_idx]).astype(dtype).T
+        sorter.cleaned_sources_ica = np.matmul(sorter.cleaned_W_ica, traces)
+    else:
+        traces = recording.get_traces().astype(dtype).T
+        sorter.s_ica = np.matmul(sorter.W_ica, traces)
 
-    sorter.clean_sources_ica(kurt_thresh=kurt_thresh, skew_thresh=skew_thresh, verbose=verbose)
+        sorter.clean_sources_ica(kurt_thresh=kurt_thresh, skew_thresh=skew_thresh, verbose=verbose)
 
     sorter.cluster(recording.get_num_frames(0),
                    clustering, spike_thresh, keep_all_clusters, features, verbose)

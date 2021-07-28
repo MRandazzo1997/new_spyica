@@ -61,7 +61,8 @@ class SpyICASorter:
 
         """
         if sample_window_ms is None:
-            return self.recording.get_traces().astype('int16').T, None, None
+            self.cut_traces = self.recording.get_traces().astype('int16').T
+            return
 
         # set sample window
         if isinstance(sample_window_ms, float) or isinstance(sample_window_ms, int):
