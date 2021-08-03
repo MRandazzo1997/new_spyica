@@ -1,5 +1,8 @@
 import numpy as np
 from spikeinterface.toolkit.preprocessing.basepreprocessor import BasePreprocessor, BasePreprocessorSegment
+from ..tools import clean_sources
+
+clean_idx = None
 
 
 class LinearMapFilter(BasePreprocessor):
@@ -30,9 +33,11 @@ class FilterRecordingSegment(BasePreprocessorSegment):
         self.M = M
 
     def get_traces(self, start_frame, end_frame, channel_indices):
-        traces = self.parent_recording_segment.get_traces(start_frame, end_frame, slice(None)).T
-        filtered_traces = self.M @ traces
-        filtered_traces = filtered_traces[channel_indices, :]
+        global clean_idx
+        traces = self.parent_recording_segment.get_traces(start_frame, end_frame, slice(None))
+        filtered_traces = traces @ self.M.T
+        if channel_indices is not None:
+            filtered_traces = filtered_traces[:, channel_indices]
         return filtered_traces
 
 

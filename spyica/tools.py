@@ -82,7 +82,6 @@ def detect_and_align(sources, fs, recordings, t_start=None, t_stop=None, n_std=5
         idx_spike = np.where(s < thresh)[0]
         idx_spikes.append(idx_spike)
         intervals = np.diff(idx_spike)
-        print(f"idx_spike={idx_spike.shape}")
 
         sp_times = []
         sp_wf = []
@@ -91,7 +90,6 @@ def detect_and_align(sources, fs, recordings, t_start=None, t_stop=None, n_std=5
         first_spike = True
 
         if idx_spike.shape[0] > 1:
-            print(f"in: {s_idx}")
             for i_t, t in enumerate(intervals):
                 idx = idx_spike[i_t]
                 if t > 1 or i_t == len(intervals) - 1:
@@ -177,7 +175,6 @@ def detect_and_align(sources, fs, recordings, t_start=None, t_stop=None, n_std=5
                                         waveforms=np.array(sp_rec_wf))
             spiketrain.annotate(ica_amp=np.array(sp_amp))
             spiketrain.annotate(ica_wf=np.array(sp_wf))
-            print("spiketrain: ", spiketrain)
             spike_trains.append(spiketrain)
             idx_sources.append(s_idx)
 
@@ -335,9 +332,6 @@ def reject_duplicate_spiketrains(sst, percent_threshold=0.5, min_spikes=3, sourc
                         if len(id_over) != 0:
                             count += 1
                     if count >= percent_threshold * len(sp_times):
-                        print(len(sp_times))
-                        if len(sp_times) == 0:
-                            print(sst[i])
                         if [i, j] not in duplicates and [j, i] not in duplicates:
                             print('Found duplicate spike trains: ', i, j, count)
                             duplicates.append([i, j])
@@ -583,9 +577,6 @@ def cluster_spike_amplitudes(sst, metric='cal', min_sihlo=0.8, min_cal=100, max_
                             reduced_sst.append(sst[i])
                             reduced_amps.append(amps)
                             keep_id.append(range(len(sst[i])))
-                            if sst[i].shape[0] < 1:
-                                print("empty: ", i)
-                                print("sst: ", sst[i])
                         else:
                             if keep_all:
                                 for clust in np.unique(labels):
@@ -617,10 +608,6 @@ def cluster_spike_amplitudes(sst, metric='cal', min_sihlo=0.8, min_cal=100, max_
                                     reduced_sst.append(red_spikes)
                                     reduced_amps.append(amps[idxs])
                                     keep_id.append(idxs)
-                                    if red_spikes.shape[0] < 1:
-                                        print("empty: ", i)
-                                        print("idxs: ", idxs)
-                                        print("sst: ", sst[i])
                     silhos[i] = silho
                     cal_hars[i] = cal_har
                 else:
@@ -630,9 +617,6 @@ def cluster_spike_amplitudes(sst, metric='cal', min_sihlo=0.8, min_cal=100, max_
                     reduced_sst.append(red_spikes)
                     reduced_amps.append(amps)
                     keep_id.append(range(len(sst[i])))
-                    if red_spikes.shape[0] < 1:
-                        print("empty: ", i)
-                        print("sst: ", sst[i])
             else:
                 red_spikes = copy(sst[i])
                 red_spikes.annotations = copy(sst[i].annotations)
@@ -963,44 +947,47 @@ def threshold_spike_sorting(recordings, threshold):
     return spikes
 
 
-def clean_tests(A_ica, s_ica):
+def clean_tests(A_ica, s_ica, recording, method):
     import scipy.stats as ss
-    idx_shap = []
-    for chan in range(32):
-        stat_shap, p_shap = ss.shapiro(A_ica[chan])
-        if p_shap < 0.05: idx_shap.append(chan)
-    idx_and = []
-    for chan in range(32):
-        res_and = ss.anderson(A_ica[chan])
-        if res_and[0] > res_and[1][2]: idx_and.append(chan)
-    idx_ks = []
-    for chan in range(32):
-        res_ks = ss.kstest(A_ica[chan], 'norm')
-        if res_ks[1] < 0.05: idx_ks.append(chan)
-    idx_norm = []
-    for chan in range(32):
-        res_norm = ss.normaltest(A_ica[chan])
-        if res_norm[1] < 0.05: idx_norm.append(chan)
-    final = []
-    for idx in idx_shap:
-        if idx in idx_and and idx in idx_norm and idx in idx_ks:
-            final.append(idx)
-    for idx in idx_and:
-        if idx in idx_shap and idx in idx_norm and idx in idx_ks:
-            final.append(idx)
-    for idx in idx_norm:
-        if idx in idx_and and idx in idx_shap and idx in idx_ks:
-            final.append(idx)
-    for idx in idx_ks:
-        if idx in idx_and and idx in idx_norm and idx in idx_shap:
-            final.append(idx)
-    source_idx = np.unique(final)
+    # find closest channels
+    max_ids = np.argmax(A_ica, axis=1)
+    chan_loc = recording.get_channel_locations()
+    closest = []
+    for idx in max_ids:
+        pos = chan_loc[idx]
+        chans = []
+        for c in range(32):
+            dist = np.sqrt(np.square(pos[0] - chan_loc[c, 0]) + np.square(pos[1] - chan_loc[c, 1]))
+            if dist <= 60:
+                chans.append(c)
+        closest.append(chans)
+
+    if method == 'average':
+        av_val = []
+        for i, ind in enumerate(max_ids):
+            max_val = A_ica[i, ind]
+            close_val = A_ica[i, closest[i]]
+            av = max_val - (np.sum(close_val) - max_val) / (len(close_val) - 1)
+            av_val.append(av)
+        av_max = np.average(np.asarray(av_val))
+        source_idx = np.where(av_val > av_max*0.66)[0]
+        print(av_max)
+
+    if method == 'std':
+        tmp_val = []
+        for i, ind in enumerate(max_ids):
+            std = np.std(A_ica[i, closest[i]])
+            tmp_val.append(std)
+        av_std = np.average(np.asarray(tmp_val))
+        source_idx = np.where(tmp_val > av_std)[0]
+        print(av_std)
+
     cleaned_sources_ica = s_ica[source_idx]
     sk_sp = ss.skew(cleaned_sources_ica, axis=1)
     # invert sources with positive skewness
     cleaned_sources_ica[sk_sp > 0] = -cleaned_sources_ica[sk_sp > 0]
 
-    return cleaned_sources_ica, source_idx
+    return cleaned_sources_ica, np.array(source_idx)
 
 
 from spyica.SpyICASorter.SpyICASorter import SpyICASorter

@@ -146,6 +146,8 @@ class SpyICASorter:
         else:
             raise Exception("Only 'ica' and 'orica' are implemented")
 
+        t_init = time.time()
+
         # TODO use random snippets (e.g. 20% of the data) / or spiky signals for fast ICA
         if ica_alg == 'ica':
             self.s_ica, self.A_ica, self.W_ica = ica.instICA(self.cut_traces, n_comp=n_comp, n_chunks=n_chunks,
@@ -155,13 +157,15 @@ class SpyICASorter:
                                                                n_chunks=n_chunks, chunk_size=chunk_size,
                                                                numpass=num_pass, block_size=block_size)
 
+        print(f"Elapsed time: {time.time() - t_init}")
+
     def clean_sources_ica(self, method='old', kurt_thresh=1, skew_thresh=0.2, verbose=True):
         if method == 'old':
             # clean sources based on skewness and kurtosis
             self.cleaned_sources_ica, self.source_idx = clean_sources(self.s_ica, kurt_thresh=kurt_thresh,
                                                                       skew_thresh=skew_thresh)
-        elif method == 'tests':
-            self.cleaned_sources_ica, self.source_idx = clean_tests(self.A_ica, self.s_ica)
+        else:
+            self.cleaned_sources_ica, self.source_idx = clean_tests(self.A_ica, self.s_ica, self.recording, method)
 
         cleaned_src_ica, src_idx = clean_sources(self.s_ica, kurt_thresh=kurt_thresh,
                                                  skew_thresh=skew_thresh)
