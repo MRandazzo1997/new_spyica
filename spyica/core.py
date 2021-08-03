@@ -17,7 +17,7 @@ def ica_spike_sorting(recording, clustering='mog', n_comp='all',
                       n_chunks=0, chunk_size=0, spike_thresh=5, dtype='int16',
                       keep_all_clusters=False, sample_window_ms=2, percent_spikes=None,
                       balance_spikes_on_channel=False, max_num_spikes=None, verbose=True,
-                      use_lambda=True, max_iter=200, clean_before=False):
+                      use_lambda=True, max_iter=200, clean_before=False, method='old'):
     if not isinstance(recording, BaseRecording):
         raise Exception("Input a RecordingExtractor object!")
 
@@ -45,7 +45,7 @@ def ica_spike_sorting(recording, clustering='mog', n_comp='all',
         traces = recording.get_traces().astype(dtype).T
         sorter.s_ica = np.matmul(sorter.W_ica, traces)
 
-        sorter.clean_sources_ica(kurt_thresh=kurt_thresh, skew_thresh=skew_thresh, verbose=verbose)
+        sorter.clean_sources_ica(method=method, kurt_thresh=kurt_thresh, skew_thresh=skew_thresh, verbose=verbose)
 
     sorter.cluster(recording.get_num_frames(0),
                    clustering, spike_thresh, keep_all_clusters, features, verbose)

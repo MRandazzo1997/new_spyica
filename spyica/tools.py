@@ -82,6 +82,7 @@ def detect_and_align(sources, fs, recordings, t_start=None, t_stop=None, n_std=5
         idx_spike = np.where(s < thresh)[0]
         idx_spikes.append(idx_spike)
         intervals = np.diff(idx_spike)
+        print(f"idx_spike={idx_spike.shape}")
 
         sp_times = []
         sp_wf = []
@@ -89,93 +90,96 @@ def detect_and_align(sources, fs, recordings, t_start=None, t_stop=None, n_std=5
         sp_amp = []
         first_spike = True
 
-        for i_t, t in enumerate(intervals):
-            idx = idx_spike[i_t]
-            if t > 1 or i_t == len(intervals) - 1:
-                if idx - n_pad > 0 and idx + n_pad < len(s):
-                    spike = s[idx - n_pad:idx + n_pad]
-                    # t_spike = times[idx - n_pad:idx + n_pad]
-                    t_spike = np.arange(idx - n_pad, idx + n_pad)
-                    spike_rec = recordings[:, idx - n_pad:idx + n_pad]
-                elif idx - n_pad < 0:
-                    spike = s[:idx + n_pad]
-                    spike = np.pad(spike, (np.abs(idx - n_pad), 0), 'constant')
-                    # t_spike = times[:idx + n_pad]
-                    t_spike = np.arange(idx + n_pad)
-                    t_spike = np.pad(t_spike, (np.abs(idx - n_pad), 0), 'constant')
-                    spike_rec = recordings[:, :idx + n_pad]
-                    spike_rec = np.pad(spike_rec, ((0, 0), (np.abs(idx - n_pad), 0)), 'constant')
-                elif idx + n_pad > len(s):
-                    spike = s[idx - n_pad:]
-                    spike = np.pad(spike, (0, idx + n_pad - len(s)), 'constant')
-                    # t_spike = times[idx - n_pad:]
-                    t_spike = np.arange(idx - n_pad, sources.shape[1])
-                    t_spike = np.pad(t_spike, (0, idx + n_pad - len(s)), 'constant')
-                    spike_rec = recordings[:, idx - n_pad:]
-                    spike_rec = np.pad(spike_rec, ((0, 0), (0, idx + n_pad - len(s))), 'constant')
+        if idx_spike.shape[0] > 1:
+            print(f"in: {s_idx}")
+            for i_t, t in enumerate(intervals):
+                idx = idx_spike[i_t]
+                if t > 1 or i_t == len(intervals) - 1:
+                    if idx - n_pad > 0 and idx + n_pad < len(s):
+                        spike = s[idx - n_pad:idx + n_pad]
+                        # t_spike = times[idx - n_pad:idx + n_pad]
+                        t_spike = np.arange(idx - n_pad, idx + n_pad)
+                        spike_rec = recordings[:, idx - n_pad:idx + n_pad]
+                    elif idx - n_pad < 0:
+                        spike = s[:idx + n_pad]
+                        spike = np.pad(spike, (np.abs(idx - n_pad), 0), 'constant')
+                        # t_spike = times[:idx + n_pad]
+                        t_spike = np.arange(idx + n_pad)
+                        t_spike = np.pad(t_spike, (np.abs(idx - n_pad), 0), 'constant')
+                        spike_rec = recordings[:, :idx + n_pad]
+                        spike_rec = np.pad(spike_rec, ((0, 0), (np.abs(idx - n_pad), 0)), 'constant')
+                    elif idx + n_pad > len(s):
+                        spike = s[idx - n_pad:]
+                        spike = np.pad(spike, (0, idx + n_pad - len(s)), 'constant')
+                        # t_spike = times[idx - n_pad:]
+                        t_spike = np.arange(idx - n_pad, sources.shape[1])
+                        t_spike = np.pad(t_spike, (0, idx + n_pad - len(s)), 'constant')
+                        spike_rec = recordings[:, idx - n_pad:]
+                        spike_rec = np.pad(spike_rec, ((0, 0), (0, idx + n_pad - len(s))), 'constant')
 
-                if first_spike:
-                    nsamples = len(spike)
-                    nsamples_up = nsamples * upsample
-                    first_spike = False
+                    if first_spike:
+                        nsamples = len(spike)
+                        nsamples_up = nsamples * upsample
+                        first_spike = False
 
-                # upsample and find minimum
-                if upsample > 1:
-                    spike_up = ss.resample_poly(spike, upsample, 1)
-                    # times_up = ss.resample_poly(t_spike, upsample, 1
-                    t_spike_up = np.linspace(t_spike[0], t_spike[-1], num=len(spike_up))
-                else:
-                    spike_up = spike
-                    t_spike_up = t_spike
+                    # upsample and find minimum
+                    if upsample > 1:
+                        spike_up = ss.resample_poly(spike, upsample, 1)
+                        # times_up = ss.resample_poly(t_spike, upsample, 1
+                        t_spike_up = np.linspace(t_spike[0], t_spike[-1], num=len(spike_up))
+                    else:
+                        spike_up = spike
+                        t_spike_up = t_spike
 
-                min_idx_up = np.argmin(spike_up)
-                min_amp_up = np.min(spike_up)
-                min_time_up = t_spike_up[min_idx_up]
+                    min_idx_up = np.argmin(spike_up)
+                    min_amp_up = np.min(spike_up)
+                    min_time_up = t_spike_up[min_idx_up]
 
-                min_idx = np.argmin(spike)
-                min_amp = np.min(spike)
-                min_time = t_spike[min_idx]
+                    min_idx = np.argmin(spike)
+                    min_amp = np.min(spike)
+                    min_time = t_spike[min_idx]
 
-                # align waveform
-                shift = nsamples_up // 2 - min_idx_up
-                if shift > 0:
-                    spike_up = np.pad(spike_up, (np.abs(shift), 0), 'constant')[:nsamples_up]
-                elif shift < 0:
-                    spike_up = np.pad(spike_up, (0, np.abs(shift)), 'constant')[-nsamples_up:]
+                    # align waveform
+                    shift = nsamples_up // 2 - min_idx_up
+                    if shift > 0:
+                        spike_up = np.pad(spike_up, (np.abs(shift), 0), 'constant')[:nsamples_up]
+                    elif shift < 0:
+                        spike_up = np.pad(spike_up, (0, np.abs(shift)), 'constant')[-nsamples_up:]
 
-                if len(sp_times) != 0:
-                    # print(min_time_up, sp_times[-1])
-                    if min_time_up - sp_times[-1] > ref_period:
+                    if len(sp_times) != 0:
+                        # print(min_time_up, sp_times[-1])
+                        if min_time_up - sp_times[-1] > ref_period:
+                            sp_wf.append(spike_up)
+                            sp_rec_wf.append(spike_rec)
+                            sp_amp.append(min_amp_up)
+                            sp_times.append(min_time_up)
+                    else:
                         sp_wf.append(spike_up)
                         sp_rec_wf.append(spike_rec)
                         sp_amp.append(min_amp_up)
                         sp_times.append(min_time_up)
-                else:
-                    sp_wf.append(spike_up)
-                    sp_rec_wf.append(spike_rec)
-                    sp_amp.append(min_amp_up)
-                    sp_times.append(min_time_up)
 
-        if t_start and t_stop:
-            for i, sp in enumerate(sp_times):
-                if sp < t_start.rescale('s').magnitude * fs:
-                    sp_times[i] = t_start.rescale('s').magnitude * fs
-                if sp > t_stop.rescale('s').magnitude * fs:
-                    sp_times[i] = t_stop.rescale('s').magnitude * fs
-        elif t_stop:
-            for i, sp in enumerate(sp_times):
-                if sp > t_stop.rescale('s').magnitude * fs:
-                    sp_times[i] = t_stop.rescale('s').magnitude * fs
-        else:
-            t_start = 0 * pq.s
-            t_stop = sp_times[-1] / fs * pq.s
+            if t_start and t_stop:
+                for i, sp in enumerate(sp_times):
+                    if sp < t_start.rescale('s').magnitude * fs:
+                        sp_times[i] = t_start.rescale('s').magnitude * fs
+                    if sp > t_stop.rescale('s').magnitude * fs:
+                        sp_times[i] = t_stop.rescale('s').magnitude * fs
+            elif t_stop:
+                for i, sp in enumerate(sp_times):
+                    if sp > t_stop.rescale('s').magnitude * fs:
+                        sp_times[i] = t_stop.rescale('s').magnitude * fs
+            else:
+                t_start = 0 * pq.s
+                t_stop = sp_times[-1] / fs * pq.s
 
-        spiketrain = neo.SpikeTrain(np.array(sp_times) / fs * pq.s, t_start=t_start, t_stop=t_stop,
-                                    waveforms=np.array(sp_rec_wf))
-        spiketrain.annotate(ica_amp=np.array(sp_amp))
-        spiketrain.annotate(ica_wf=np.array(sp_wf))
-        spike_trains.append(spiketrain)
-        idx_sources.append(s_idx)
+            spiketrain = neo.SpikeTrain(np.array(sp_times) / fs * pq.s, t_start=t_start, t_stop=t_stop,
+                                        waveforms=np.array(sp_rec_wf))
+            spiketrain.annotate(ica_amp=np.array(sp_amp))
+            spiketrain.annotate(ica_wf=np.array(sp_wf))
+            print("spiketrain: ", spiketrain)
+            spike_trains.append(spiketrain)
+            idx_sources.append(s_idx)
 
     return spike_trains
 
@@ -331,6 +335,9 @@ def reject_duplicate_spiketrains(sst, percent_threshold=0.5, min_spikes=3, sourc
                         if len(id_over) != 0:
                             count += 1
                     if count >= percent_threshold * len(sp_times):
+                        print(len(sp_times))
+                        if len(sp_times) == 0:
+                            print(sst[i])
                         if [i, j] not in duplicates and [j, i] not in duplicates:
                             print('Found duplicate spike trains: ', i, j, count)
                             duplicates.append([i, j])
@@ -398,8 +405,8 @@ def clean_sources(sources, kurt_thresh=0.7, skew_thresh=0.5, remove_correlated=T
 
     Parameters
     ----------
-    s
-    corr_thresh
+    sources
+    kurt_thresh
     skew_thresh
 
     Returns
@@ -576,6 +583,9 @@ def cluster_spike_amplitudes(sst, metric='cal', min_sihlo=0.8, min_cal=100, max_
                             reduced_sst.append(sst[i])
                             reduced_amps.append(amps)
                             keep_id.append(range(len(sst[i])))
+                            if sst[i].shape[0] < 1:
+                                print("empty: ", i)
+                                print("sst: ", sst[i])
                         else:
                             if keep_all:
                                 for clust in np.unique(labels):
@@ -596,16 +606,21 @@ def cluster_spike_amplitudes(sst, metric='cal', min_sihlo=0.8, min_cal=100, max_
                                 elif alg == 'mog':
                                     highest_clust = np.argmin(gmm.means_)
                                 idxs = np.where(labels == highest_clust)[0]
-                                red_spikes = sst[i][idxs]
-                                red_spikes.annotations = copy(sst[i][idxs].annotations)
-                                if 'ica_amp' in red_spikes.annotations:
-                                    red_spikes.annotate(ica_amp=red_spikes.annotations['ica_amp'][idxs])
-                                if 'ica_wf' in red_spikes.annotations:
-                                    red_spikes.annotate(ica_wf=red_spikes.annotations['ica_wf'][idxs])
-                                red_spikes.annotate(ica_source=i)
-                                reduced_sst.append(red_spikes)
-                                reduced_amps.append(amps[idxs])
-                                keep_id.append(idxs)
+                                if len(idxs) > 0:
+                                    red_spikes = sst[i][idxs]
+                                    red_spikes.annotations = copy(sst[i][idxs].annotations)
+                                    if 'ica_amp' in red_spikes.annotations:
+                                        red_spikes.annotate(ica_amp=red_spikes.annotations['ica_amp'][idxs])
+                                    if 'ica_wf' in red_spikes.annotations:
+                                        red_spikes.annotate(ica_wf=red_spikes.annotations['ica_wf'][idxs])
+                                    red_spikes.annotate(ica_source=i)
+                                    reduced_sst.append(red_spikes)
+                                    reduced_amps.append(amps[idxs])
+                                    keep_id.append(idxs)
+                                    if red_spikes.shape[0] < 1:
+                                        print("empty: ", i)
+                                        print("idxs: ", idxs)
+                                        print("sst: ", sst[i])
                     silhos[i] = silho
                     cal_hars[i] = cal_har
                 else:
@@ -615,6 +630,9 @@ def cluster_spike_amplitudes(sst, metric='cal', min_sihlo=0.8, min_cal=100, max_
                     reduced_sst.append(red_spikes)
                     reduced_amps.append(amps)
                     keep_id.append(range(len(sst[i])))
+                    if red_spikes.shape[0] < 1:
+                        print("empty: ", i)
+                        print("sst: ", sst[i])
             else:
                 red_spikes = copy(sst[i])
                 red_spikes.annotations = copy(sst[i].annotations)
@@ -943,6 +961,46 @@ def threshold_spike_sorting(recordings, threshold):
             spikes.update({i_rec: sp_times})
 
     return spikes
+
+
+def clean_tests(A_ica, s_ica):
+    import scipy.stats as ss
+    idx_shap = []
+    for chan in range(32):
+        stat_shap, p_shap = ss.shapiro(A_ica[chan])
+        if p_shap < 0.05: idx_shap.append(chan)
+    idx_and = []
+    for chan in range(32):
+        res_and = ss.anderson(A_ica[chan])
+        if res_and[0] > res_and[1][2]: idx_and.append(chan)
+    idx_ks = []
+    for chan in range(32):
+        res_ks = ss.kstest(A_ica[chan], 'norm')
+        if res_ks[1] < 0.05: idx_ks.append(chan)
+    idx_norm = []
+    for chan in range(32):
+        res_norm = ss.normaltest(A_ica[chan])
+        if res_norm[1] < 0.05: idx_norm.append(chan)
+    final = []
+    for idx in idx_shap:
+        if idx in idx_and and idx in idx_norm and idx in idx_ks:
+            final.append(idx)
+    for idx in idx_and:
+        if idx in idx_shap and idx in idx_norm and idx in idx_ks:
+            final.append(idx)
+    for idx in idx_norm:
+        if idx in idx_and and idx in idx_shap and idx in idx_ks:
+            final.append(idx)
+    for idx in idx_ks:
+        if idx in idx_and and idx in idx_norm and idx in idx_shap:
+            final.append(idx)
+    source_idx = np.unique(final)
+    cleaned_sources_ica = s_ica[source_idx]
+    sk_sp = ss.skew(cleaned_sources_ica, axis=1)
+    # invert sources with positive skewness
+    cleaned_sources_ica[sk_sp > 0] = -cleaned_sources_ica[sk_sp > 0]
+
+    return cleaned_sources_ica, source_idx
 
 
 from spyica.SpyICASorter.SpyICASorter import SpyICASorter

@@ -9,7 +9,7 @@ import spyica.orica as orica
 from spikeinterface import NumpySorting
 from spikeinterface import sortingcomponents as sc
 from spyica.tools import clean_sources, cluster_spike_amplitudes, detect_and_align, \
-    reject_duplicate_spiketrains
+    reject_duplicate_spiketrains, clean_tests
 
 
 class SpyICASorter:
@@ -118,23 +118,22 @@ class SpyICASorter:
         self.selected_idxs = self.selected_idxs[self.selected_idxs < self.recording.get_num_samples(0) - 1]
 
         t_init3 = time.time()
-        if percent_spikes is not None:
-            for res in np.split(self.selected_idxs, np.where(np.diff(self.selected_idxs) != 1)[0] + 1):
-                traces = self.recording.get_traces(start_frame=res[0], end_frame=res[-1]).astype("int16")
-                if self.cut_traces is None:
-                    self.cut_traces = traces
-                else:
-                    self.cut_traces = np.vstack((self.cut_traces, traces))
-            self.cut_traces = self.cut_traces.T
-        else:
-            self.cut_traces = self.recording.get_traces().astype('int16').T[:, self.selected_idxs]
+        # if percent_spikes == 1.0:
+        #     for res in np.split(self.selected_idxs, np.where(np.diff(self.selected_idxs) != 1)[0] + 1):
+        #         traces = self.recording.get_traces(start_frame=res[0], end_frame=res[-1]).astype("int16")
+        #         if self.cut_traces is None:
+        #             self.cut_traces = traces
+        #         else:
+        #             self.cut_traces = np.vstack((self.cut_traces, traces))
+        #     self.cut_traces = self.cut_traces.T
+        # else:
+        #     self.cut_traces = self.recording.get_traces().astype('int16').T[:, self.selected_idxs]
+        self.cut_traces = self.recording.get_traces().astype('int16').T[:, self.selected_idxs]
         t_end3 = time.time() - t_init3
 
         print(f"Sample number for ICA: {len(self.selected_idxs)} from {self.recording.get_num_samples(0)}\n"
               f"Elapsed time getting traces: {t_end3}")
 
-        # cut_traces = traces[:, selected_idxs]
-        self.cut_traces = np.asarray(self.cut_traces)
         print(f"Shape: {self.cut_traces.shape}")
 
     def compute_ica(self, n_comp, ica_alg='ica', n_chunks=0,
@@ -156,11 +155,21 @@ class SpyICASorter:
                                                                n_chunks=n_chunks, chunk_size=chunk_size,
                                                                numpass=num_pass, block_size=block_size)
 
-    def clean_sources_ica(self, kurt_thresh=1, skew_thresh=0.2, verbose=True):
-        # clean sources based on skewness and correlation
-        self.cleaned_sources_ica, self.source_idx = clean_sources(self.s_ica, kurt_thresh=kurt_thresh, skew_thresh=skew_thresh)
+    def clean_sources_ica(self, method='old', kurt_thresh=1, skew_thresh=0.2, verbose=True):
+        if method == 'old':
+            # clean sources based on skewness and kurtosis
+            self.cleaned_sources_ica, self.source_idx = clean_sources(self.s_ica, kurt_thresh=kurt_thresh,
+                                                                      skew_thresh=skew_thresh)
+        elif method == 'tests':
+            self.cleaned_sources_ica, self.source_idx = clean_tests(self.A_ica, self.s_ica)
+
+        cleaned_src_ica, src_idx = clean_sources(self.s_ica, kurt_thresh=kurt_thresh,
+                                                 skew_thresh=skew_thresh)
+        print(src_idx, src_idx.shape[0])
+
         self.cleaned_A_ica = self.A_ica[self.source_idx]
         self.cleaned_W_ica = self.W_ica[self.source_idx]
+        print(self.source_idx, self.source_idx.shape[0])
 
         if verbose:
             print('Number of cleaned sources: ', self.cleaned_sources_ica.shape[0])
