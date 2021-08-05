@@ -967,7 +967,7 @@ def clean_tests(A_ica, s_ica, recording, method):
             if np.abs(np.sum(closest_val)) > max(np.max(closest_val), np.abs(np.min(closest_val))) * 0.66:
             # if np.abs(np.sum(A_ica[chan])) > max(np.max(A_ica[chan]), np.abs(np.min(A_ica[chan]))):
                 source_idx.append(chan)
-            print(np.sum(closest_val), np.max(closest_val), np.min(closest_val), chan)
+            # print(np.sum(closest_val), np.max(closest_val), np.min(closest_val), chan)
 
     if method == 'average':
         av_val = [A_ica[i, ind] - (np.sum(A_ica[i, closest[i]]) - A_ica[i, ind]) / (len(closest[i]) - 1)
