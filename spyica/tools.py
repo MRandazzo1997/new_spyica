@@ -1,6 +1,9 @@
 # Helper functions
 from __future__ import division
 
+import os
+
+import matplotlib.pyplot as plt
 import numpy as np
 import quantities as pq
 from sklearn.decomposition import PCA
@@ -59,7 +62,7 @@ def detect_and_align(sources, fs, recordings, t_start=None, t_stop=None, n_std=5
     t_start
     t_stop
     n_std
-    ref_period
+    ref_period_ms
     upsample
 
     Returns
@@ -947,48 +950,136 @@ def threshold_spike_sorting(recordings, threshold):
     return spikes
 
 
-def clean_tests(A_ica, s_ica, recording, method):
-    import scipy.stats as ss
+import scipy.stats as ss
+
+
+def clean_tests(A_ica, s_ica, recording, channel=[], thr=0.2, n_occ=5):
 
     source_idx = []
     chan_loc = recording.get_channel_locations()
     num_channels = recording.get_num_channels()
 
-    # find closest channels
-    max_ids = np.argmax(A_ica, axis=1)
-    dist = np.sqrt(np.square(chan_loc[:, 0] - chan_loc[:, 0, np.newaxis]) +
-                   np.square(chan_loc[:, 1] - chan_loc[:, 1, np.newaxis]))
-    closest = [[list(np.where(dist[:, i] < 60.0)[0])] for i in range(num_channels)]
+    # sort channels by distance from max
+    max_ids = np.argmax(np.abs(A_ica), axis=1)
+    max_locations = chan_loc[max_ids]
+    # np.linalg.norm
+    chan_dist = [{np.sqrt(np.square(max_locations[i][0] - chan_loc[j][0]) +
+                          np.square(max_locations[i][1] - chan_loc[j][1])): j
+                  for j in range(num_channels)}
+                 for i in range(num_channels)]
+    sorted_dist = []
+    for chan in range(num_channels):
+        s = np.sort(list(chan_dist[chan].keys()))
+        d = dict()
+        for dist in s:
+            d.update({dist: chan_dist[chan][dist]})
+        sorted_dist.append(d)
 
-    if method == 'sum':
-        for chan in range(recording.get_num_channels()):
-            max_chan = max_ids[chan]
-            closest_val = A_ica[chan, closest[max_chan]]
-            if np.abs(np.sum(closest_val)) > max(np.max(closest_val), np.abs(np.min(closest_val))) * 0.66:
-            # if np.abs(np.sum(A_ica[chan])) > max(np.max(A_ica[chan]), np.abs(np.min(A_ica[chan]))):
-                source_idx.append(chan)
-            # print(np.sum(closest_val), np.max(closest_val), np.min(closest_val), chan)
+    norm_amps = []
+    # normalize amplitudes based on distance
+    for i, l in enumerate(sorted_dist):
+        m = A_ica[i][max_ids[i]] / 2
+        amps = []
+        for item in l.values():
+            norm = A_ica[i][item] / m
+            amps.append(norm)
+        norm_amps.append(amps)
 
-    if method == 'average':
-        av_val = [A_ica[i, ind] - (np.sum(A_ica[i, closest[i]]) - A_ica[i, ind]) / (len(closest[i]) - 1)
-                  for i, ind in enumerate(max_ids)]
-        av_max = np.average(np.asarray(av_val))
-        source_idx = np.where(av_val > av_max*0.66)[0]
-        print(av_max)
-
-    if method == 'std':
-        std = np.array(np.std(A_ica[i, closest[i]])
-                       for i, ind in enumerate(max_ids))
-        av_std = np.average(std)
-        source_idx = np.where(std > av_std)[0]
-        print(av_std)
+    for chan in range(num_channels):
+        zero_cross = np.where(np.array(norm_amps[chan]) <= 0.05)[0]
+        chan_after_cross = norm_amps[chan][zero_cross[0]:]
+        diff_pos = np.array(chan_after_cross) >= thr
+        diff_neg = np.array(chan_after_cross) <= -thr
+        occurrences_pos = np.argwhere(diff_pos)[:, 0]
+        occurrences_neg = np.argwhere(diff_neg)[:, 0]
+        if len(occurrences_pos) + len(occurrences_neg) <= n_occ:
+            source_idx.append(chan)
 
     cleaned_sources_ica = s_ica[source_idx]
     sk_sp = ss.skew(cleaned_sources_ica, axis=1)
     # invert sources with positive skewness
     cleaned_sources_ica[sk_sp > 0] = -cleaned_sources_ica[sk_sp > 0]
 
-    return cleaned_sources_ica, np.array(source_idx)
+    return cleaned_sources_ica, np.array(source_idx), norm_amps, sorted_dist
+
+
+def sort_channels_by_distance_from_peak(channels_coordinates, signals=None, max_ids=None):
+    if max_ids is None:
+        max_ids = np.abs(signals).argmax(axis=1)
+    max_locations = channels_coordinates[max_ids]
+    dist = map(lambda max_pos: np.linalg.norm(np.tile(max_pos, (32, 1)) - channels_coordinates, axis=1), max_locations)
+    dist = np.array(list(dist))
+    sorted_dist = np.sort(dist, axis=1)
+    sorted_idx = np.argsort(dist, axis=1)
+    print("dist: ", sorted_dist)
+    return sorted_dist, sorted_idx
+
+
+def normalize_amplitudes(signals, sorted_idx, abs_=False, max_values=None):
+    if max_values is None:
+        if not abs_:
+            max_v = signals.max(axis=1)
+            min_v = signals.min(axis=1)
+            max_values = np.where(max_v > np.abs(min_v), max_v, min_v)
+        else:
+            max_values = np.abs(signals).max(axis=1)
+    sorted_amps = np.array([signals[i, sorted_idx[i]] for i in range(signals.shape[0])])
+    if not abs_:
+        norm_amps = sorted_amps / max_values[:, np.newaxis]
+    else:
+        norm_amps = np.abs(sorted_amps) / max_values[:, np.newaxis]
+    print("amps: ", norm_amps)
+    return norm_amps
+
+
+import scipy.optimize as so
+
+
+def exp_func(x, a, b, c):
+    return a + b * np.exp(- c * x)
+
+
+def select_channels(channel_coordinates=None, signals=None, norm_amps=None, sorted_dist=None,
+                    method='exp', thr=.2, zero_level=.05, n_occ=5):
+
+    if norm_amps is None or sorted_dist is None:
+        sorted_dist, sorted_idx = sort_channels_by_distance_from_peak(channels_coordinates=channel_coordinates,
+                                                                      signals=signals)
+        #max_values = signals[sorted_idx[:, 0]]
+        norm_amps = normalize_amplitudes(signals, sorted_idx,
+                                         abs_=(True if method == 'exp' else False))
+
+    source_idx = []
+    num_channels = norm_amps.shape[0]
+    if method == 'exp':
+        for chan in range(num_channels):
+            x, idx = np.unique(sorted_dist[chan], return_index=True)
+            x = x / sorted_dist[chan].max() * 2
+            y = norm_amps[chan, idx]
+            try:
+                popt, pcov = so.curve_fit(exp_func, x, y)
+                if np.abs(pcov.mean()) < thr:
+                    print(pcov.mean(), chan)
+                    source_idx.append(chan)
+            except RuntimeError:
+                print("couldn't find optimal params channel: ", chan)
+
+    elif method == 'threshold':
+        for chan in range(num_channels):
+            zero_cross = np.where(np.array(norm_amps[chan]) <= zero_level)[0]
+            chan_after_cross = norm_amps[chan][zero_cross[0]:]
+            diff_pos = np.array(chan_after_cross) >= thr
+            diff_neg = np.array(chan_after_cross) <= -thr
+            occurrences_pos = np.argwhere(diff_pos)[:, 0]
+            occurrences_neg = np.argwhere(diff_neg)[:, 0]
+            if len(occurrences_pos) + len(occurrences_neg) <= n_occ:
+                source_idx.append(chan)
+
+    else:
+        raise Exception(f"Method {method} not implemented."
+                        f"Try 'exp' or 'threshold'.")
+
+    return np.array(source_idx)
 
 
 from spyica.SpyICASorter.SpyICASorter import SpyICASorter
@@ -1008,5 +1099,5 @@ def localize_sources(sorter, axis=1):
     else:
         matrix = np.abs(sorter.A_ica[idx])
         s = np.sum(matrix, axis=axis)
-        coms = (matrix @ chan_positions)/s[:, np.newaxis]
+        coms = (matrix @ chan_positions) / s[:, np.newaxis]
     return coms

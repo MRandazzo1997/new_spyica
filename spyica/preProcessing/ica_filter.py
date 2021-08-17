@@ -1,6 +1,6 @@
 import numpy as np
 from spikeinterface import NumpySorting
-from .preProcessing import LinearMapFilter
+from .linear_map import LinearMapFilter
 from ..SpyICASorter.SpyICASorter import SpyICASorter
 
 
@@ -24,6 +24,7 @@ class ICAFilter(LinearMapFilter):
                            balance_spikes_on_channel=balance_spikes_on_channel, max_num_spikes=max_num_spikes)
         sorter.compute_ica('all')
         self.A = sorter.A_ica
+        source_idx = recording.ids_to_indices(recording.get_channel_ids())
         if clean:
             source_idx = []
             chan_loc = recording.get_channel_locations()
@@ -38,21 +39,22 @@ class ICAFilter(LinearMapFilter):
             for chan in range(recording.get_num_channels()):
                 max_chan = max_ids[chan]
                 closest_val = sorter.A_ica[chan, closest[max_chan]]
-                if np.abs(np.sum(closest_val)) > max(np.max(closest_val), np.abs(np.min(closest_val))) * 0.66:
-                # if np.abs(np.sum(A_ica[chan])) > max(np.max(A_ica[chan]), np.abs(np.min(A_ica[chan]))):
+                # if np.abs(np.sum(closest_val)) > max(np.max(closest_val), np.abs(np.min(closest_val))) * 0.66:
+                if np.abs(np.sum(sorter.A_ica[chan])) > max(np.max(sorter.A_ica[chan]), np.abs(np.min(sorter.A_ica[chan]))):
                     source_idx.append(chan)
-                print(np.sum(closest_val), np.max(closest_val), np.min(closest_val), chan)
+            print("cleaned: ", len(source_idx))
 
-        LinearMapFilter.__init__(self, recording, sorter.cleaned_W_ica, sorter.source_idx)
+        LinearMapFilter.__init__(self, recording, sorter.W_ica, source_idx)
         self._kwargs = dict(recording=recording.to_dict(), sample_window_ms=sample_window_ms,
                             percent_spikes=percent_spikes, balance_spikes_on_channel=balance_spikes_on_channel,
                             max_num_spikes=max_num_spikes, clean=clean)
 
 
 def ica_filter(recording, sample_window_ms=1, percent_spikes=None, balance_spikes_on_channel=False,
-               max_num_spikes=None):
+               max_num_spikes=None, clean=False):
     filt = ICAFilter(recording, sample_window_ms=sample_window_ms, percent_spikes=percent_spikes,
-                     balance_spikes_on_channel=balance_spikes_on_channel, max_num_spikes=max_num_spikes)
+                     balance_spikes_on_channel=balance_spikes_on_channel, max_num_spikes=max_num_spikes,
+                     clean=clean)
     return filt
 
 
