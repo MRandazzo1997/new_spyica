@@ -7,6 +7,13 @@ import matplotlib.pyplot as plt
 import numpy as np
 import quantities as pq
 from sklearn.decomposition import PCA
+from scipy.signal import find_peaks
+from pathlib import Path
+from spikeinterface.toolkit import get_noise_levels
+from spikeinterface.widgets.unitwaveforms import get_template_channel_sparsity
+from spyica.SpyICASorter.SpyICASorter import SpyICASorter
+import h5py as h5py
+import scipy.optimize as so
 
 
 def apply_pca(X, n_comp):
@@ -950,68 +957,16 @@ def threshold_spike_sorting(recordings, threshold):
     return spikes
 
 
-import scipy.stats as ss
-
-
-def clean_tests(A_ica, s_ica, recording, channel=[], thr=0.2, n_occ=5):
-
-    source_idx = []
-    chan_loc = recording.get_channel_locations()
-    num_channels = recording.get_num_channels()
-
-    # sort channels by distance from max
-    max_ids = np.argmax(np.abs(A_ica), axis=1)
-    max_locations = chan_loc[max_ids]
-    # np.linalg.norm
-    chan_dist = [{np.sqrt(np.square(max_locations[i][0] - chan_loc[j][0]) +
-                          np.square(max_locations[i][1] - chan_loc[j][1])): j
-                  for j in range(num_channels)}
-                 for i in range(num_channels)]
-    sorted_dist = []
-    for chan in range(num_channels):
-        s = np.sort(list(chan_dist[chan].keys()))
-        d = dict()
-        for dist in s:
-            d.update({dist: chan_dist[chan][dist]})
-        sorted_dist.append(d)
-
-    norm_amps = []
-    # normalize amplitudes based on distance
-    for i, l in enumerate(sorted_dist):
-        m = A_ica[i][max_ids[i]] / 2
-        amps = []
-        for item in l.values():
-            norm = A_ica[i][item] / m
-            amps.append(norm)
-        norm_amps.append(amps)
-
-    for chan in range(num_channels):
-        zero_cross = np.where(np.array(norm_amps[chan]) <= 0.05)[0]
-        chan_after_cross = norm_amps[chan][zero_cross[0]:]
-        diff_pos = np.array(chan_after_cross) >= thr
-        diff_neg = np.array(chan_after_cross) <= -thr
-        occurrences_pos = np.argwhere(diff_pos)[:, 0]
-        occurrences_neg = np.argwhere(diff_neg)[:, 0]
-        if len(occurrences_pos) + len(occurrences_neg) <= n_occ:
-            source_idx.append(chan)
-
-    cleaned_sources_ica = s_ica[source_idx]
-    sk_sp = ss.skew(cleaned_sources_ica, axis=1)
-    # invert sources with positive skewness
-    cleaned_sources_ica[sk_sp > 0] = -cleaned_sources_ica[sk_sp > 0]
-
-    return cleaned_sources_ica, np.array(source_idx), norm_amps, sorted_dist
-
-
 def sort_channels_by_distance_from_peak(channels_coordinates, signals=None, max_ids=None):
     if max_ids is None:
         max_ids = np.abs(signals).argmax(axis=1)
     max_locations = channels_coordinates[max_ids]
-    dist = map(lambda max_pos: np.linalg.norm(np.tile(max_pos, (32, 1)) - channels_coordinates, axis=1), max_locations)
+    dist = map(
+        lambda max_pos: np.linalg.norm(np.tile(max_pos, (channels_coordinates.shape[0], 1)) - channels_coordinates,
+                                       axis=1), max_locations)
     dist = np.array(list(dist))
     sorted_dist = np.sort(dist, axis=1)
     sorted_idx = np.argsort(dist, axis=1)
-    print("dist: ", sorted_dist)
     return sorted_dist, sorted_idx
 
 
@@ -1028,11 +983,7 @@ def normalize_amplitudes(signals, sorted_idx, abs_=False, max_values=None):
         norm_amps = sorted_amps / max_values[:, np.newaxis]
     else:
         norm_amps = np.abs(sorted_amps) / max_values[:, np.newaxis]
-    print("amps: ", norm_amps)
     return norm_amps
-
-
-import scipy.optimize as so
 
 
 def exp_func(x, a, b, c):
@@ -1040,18 +991,19 @@ def exp_func(x, a, b, c):
 
 
 def select_channels(channel_coordinates=None, signals=None, norm_amps=None, sorted_dist=None,
-                    method='exp', thr=.2, zero_level=.05, n_occ=5):
-
+                    method='filt', thr=.15, zero_level=.05, n_occ=2, percent_channels=0.5):
     if norm_amps is None or sorted_dist is None:
         sorted_dist, sorted_idx = sort_channels_by_distance_from_peak(channels_coordinates=channel_coordinates,
                                                                       signals=signals)
-        #max_values = signals[sorted_idx[:, 0]]
+        # max_values = signals[sorted_idx[:, 0]]
         norm_amps = normalize_amplitudes(signals, sorted_idx,
                                          abs_=(True if method == 'exp' else False))
 
     source_idx = []
     num_channels = norm_amps.shape[0]
     if method == 'exp':
+        print(method)
+        plt.figure()
         for chan in range(num_channels):
             x, idx = np.unique(sorted_dist[chan], return_index=True)
             x = x / sorted_dist[chan].max() * 2
@@ -1061,13 +1013,18 @@ def select_channels(channel_coordinates=None, signals=None, norm_amps=None, sort
                 if np.abs(pcov.mean()) < thr:
                     print(pcov.mean(), chan)
                     source_idx.append(chan)
+                    plt.plot(x, exp_func(x, *popt), 'g')
+                else:
+                    plt.plot(x, exp_func(x, *popt), 'r')
             except RuntimeError:
                 print("couldn't find optimal params channel: ", chan)
 
     elif method == 'threshold':
+        norm_amps[norm_amps < 0] = 0
         for chan in range(num_channels):
             zero_cross = np.where(np.array(norm_amps[chan]) <= zero_level)[0]
-            chan_after_cross = norm_amps[chan][zero_cross[0]:]
+            #chan_after_cross = norm_amps[chan][zero_cross[0]:]
+            chan_after_cross = norm_amps[chan][int(percent_channels * num_channels):]
             diff_pos = np.array(chan_after_cross) >= thr
             diff_neg = np.array(chan_after_cross) <= -thr
             occurrences_pos = np.argwhere(diff_pos)[:, 0]
@@ -1075,6 +1032,20 @@ def select_channels(channel_coordinates=None, signals=None, norm_amps=None, sort
             if len(occurrences_pos) + len(occurrences_neg) <= n_occ:
                 source_idx.append(chan)
 
+    elif method == 'filt':
+        from scipy.signal import savgol_filter, find_peaks
+        window_length = int(num_channels / 5)
+        if window_length % 2 == 0:
+            window_length += 1
+        yhat = savgol_filter(norm_amps, window_length, 3)
+        start_channel = yhat[:, int(num_channels * percent_channels):]
+        peaks = {}
+        for chan in range(num_channels):
+            pks, props = find_peaks(start_channel[chan], prominence=zero_level)
+            peaks[chan] = pks
+            if len(pks) == 0:
+                source_idx.append(chan)
+        return yhat, peaks, source_idx
     else:
         raise Exception(f"Method {method} not implemented."
                         f"Try 'exp' or 'threshold'.")
@@ -1082,7 +1053,103 @@ def select_channels(channel_coordinates=None, signals=None, norm_amps=None, sort
     return np.array(source_idx)
 
 
-from spyica.SpyICASorter.SpyICASorter import SpyICASorter
+def save_sorter_data(dict_of_data, filename):
+    filename = Path(filename)
+    if not filename.parent.is_dir():
+        os.makedirs(str(filename.parent))
+    with h5py.File(filename, 'w') as h5_file:
+        for key in dict_of_data.keys():
+            if dict_of_data[key] is not None:
+                h5_file.create_dataset(key, data=dict_of_data[key])
+            else:
+                print(f'key {key} value is None')
+
+
+def load_sorter_data(data_to_be_loaded, file):
+    h5_file = h5py.File(file, 'r')
+    if not isinstance(data_to_be_loaded, list):
+        data_to_be_loaded = [data_to_be_loaded]
+
+    dict_of_data = {}
+
+    for data in data_to_be_loaded:
+        dict_of_data[data] = h5_file[data][:]
+    return dict_of_data
+
+
+def get_traces_snr(recording, method='max'):
+    traces = recording.get_traces().T
+    max_val = -traces.min(axis=1)
+    noise = get_noise_levels(recording)
+    if method == 'max':
+        snr = max_val / noise
+    elif method == 'median':
+        snr = []
+        for chan in range(recording.get_num_channels()):
+            peaks, dict_val = find_peaks(traces[chan], prominence=max_val[chan] / 2)
+            med = np.median(traces[chan][peaks])
+            snr.append(med / noise[chan])
+    elif method == 'average':
+        snr = []
+        for chan in range(recording.get_num_channels()):
+            peaks, dict_val = find_peaks(traces[chan], prominence=max_val[chan] / 2)
+            avg = np.average(traces[chan][peaks])
+            snr.append(avg / noise[chan])
+    return snr
+
+
+def plot_unit_pc(pc, ncols=5, label=None, axes=None, channel_inds=None, xdim=15, ydim=15):
+    if channel_inds is None:
+        channel_inds = np.arange(pc.shape[2])
+
+    if axes is None:
+        ncols = min(ncols, len(channel_inds))
+        nrows = int(np.ceil(len(channel_inds) / ncols))
+        fig, axes = plt.subplots(nrows, ncols, figsize=(xdim, ydim))
+    elif len(channel_inds) > 1:
+        ncols = axes.shape[1]
+        nrows = axes.shape[0]
+
+    if len(channel_inds) > 1:
+        for row in range(nrows):
+            for col in range(ncols):
+                pos = (row + col) + (ncols - 1) * row
+                chan = channel_inds[pos]
+                comp = pc[:, :, chan]
+                avg_comp = comp.mean(axis=1)
+                axes[row][col].plot(comp, lw=0.2)
+                axes[row][col].plot(avg_comp)
+                axes[row][col].set_title(f"channel: {chan}")
+        if label is not None:
+            fig.suptitle(f"Unit {label} PCs")
+    else:
+        chan = channel_inds[0]
+        comp = pc[:, :, chan]
+        avg_comp = comp.mean(axis=1)
+        axes.plot(comp, lw=0.2)
+        axes.plot(avg_comp)
+        if label is None:
+            axes.set_title(f"channel: {chan}")
+        else:
+            axes.set_title(f"Unit {label} PCs, channel: {chan}")
+
+
+def plot_all_units_pc(we, all_pc, all_labels, num_units, xdim=10, ydim=10, ncols=5):
+    unit_ids = [f'#{x}' for x in range(num_units)]
+    channel_inds = get_template_channel_sparsity(we, method='best_channels',
+                                                 outputs='index', num_channels=1)
+    ncols = min(ncols, num_units)
+    nrows = int(np.ceil(num_units / ncols))
+    fig, axes = plt.subplots(nrows, ncols, figsize=(xdim, ydim))
+
+    for i, unit in enumerate(unit_ids):
+        xpos = int(i / ncols)
+        ypos = int(i - ncols * xpos)
+        chan_id = channel_inds[unit]
+        comp_idxs = np.argwhere(all_labels == unit)[:, 0]
+        comp = all_pc[comp_idxs, :, :]
+        # plot_unit_pc(comp, label=unit, channel_inds=chan_id, xdim=5, ydim=2)
+        plot_unit_pc(comp, label=unit, channel_inds=chan_id, axes=axes[xpos][ypos])
 
 
 def localize_sources(sorter, axis=1):

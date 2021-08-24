@@ -9,7 +9,7 @@ import spyica.orica as orica
 from spikeinterface import NumpySorting
 from spikeinterface import sortingcomponents as sc
 from spyica.tools import clean_sources, cluster_spike_amplitudes, detect_and_align, \
-    reject_duplicate_spiketrains, clean_tests, select_channels
+    reject_duplicate_spiketrains, sort_channels_by_distance_from_peak, normalize_amplitudes, select_channels
 
 
 class SpyICASorter:
@@ -23,6 +23,8 @@ class SpyICASorter:
         self.A_ica = None
         self.W_ica = None
         self.ica_mean = None
+        self.filt_amps = None
+        self.peaks = None
         self.source_idx = None
         self.cleaned_sources_ica = None
         self.cleaned_A_ica = None
@@ -138,15 +140,26 @@ class SpyICASorter:
 
         print(f"Elapsed time: {time.time() - t_init}")
 
-    def clean_sources_ica(self, method='old', kurt_thresh=1, skew_thresh=0.2, verbose=True,
-                          n_occ=3, channel=[], thr=0.2):
+    def clean_sources_ica(self, method='filt', kurt_thresh=1, skew_thresh=0.2, verbose=True,
+                          n_occ=2, thr=0.15, zero_level=0.05, percent_channels=0.5):
+        traces = self.recording.get_traces().T
+        traces_mean = traces.mean(axis=1)
+        self.s_ica = np.matmul(self.W_ica, traces - traces_mean[:, np.newaxis])
         if method == 'old':
             # clean sources based on skewness and kurtosis
             self.cleaned_sources_ica, self.source_idx = clean_sources(self.s_ica, kurt_thresh=kurt_thresh,
                                                                       skew_thresh=skew_thresh)
         else:
-            self.source_idx = select_channels(self.recording.get_channel_locations(), self.A_ica,
-                                              method='threshold')
+            channel_coord = self.recording.get_channel_locations()
+            sorted_dist_pixels, sorted_idx_pixels = sort_channels_by_distance_from_peak(channel_coord,
+                                                                                        signals=self.A_ica)
+            norm_amps_pixels = normalize_amplitudes(self.A_ica, sorted_idx_pixels)
+            self.filt_amps, self.peaks, self.source_idx = select_channels(norm_amps=norm_amps_pixels,
+                                                                          zero_level=zero_level,
+                                                                          sorted_dist=sorted_dist_pixels,
+                                                                          method=method,
+                                                                          percent_channels=percent_channels,
+                                                                          thr=thr, n_occ=n_occ)
 
         cleaned_src_ica, src_idx = clean_sources(self.s_ica, kurt_thresh=kurt_thresh,
                                                  skew_thresh=skew_thresh)
