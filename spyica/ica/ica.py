@@ -4,7 +4,7 @@ import numpy as np
 from sklearn.decomposition import FastICA
 
 
-def instICA(X, n_comp='all', n_chunks=1, chunk_size=None, max_iter=200, seed=None):
+def instICA(X, n_comp='all', n_chunks=1, chunk_size=None, max_iter=200, whiten=True, seed=None):
     """Performs instantaneous ICA.
 
     Parameters
@@ -19,6 +19,8 @@ def instICA(X, n_comp='all', n_chunks=1, chunk_size=None, max_iter=200, seed=Non
 
     max_iter :  int
                 max number of ICA iterations
+    whiten : bool
+             if True, data are whitened before applying ICA
     seed : int
 
     Returns
@@ -58,7 +60,7 @@ def instICA(X, n_comp='all', n_chunks=1, chunk_size=None, max_iter=200, seed=Non
     else:
         X_reduced = X
 
-    ica = FastICA(n_components=n_comp, max_iter=max_iter, random_state=seed)  # , algorithm='deflation')
+    ica = FastICA(n_components=n_comp, max_iter=max_iter, whiten=whiten, random_state=seed)  # , algorithm='deflation')
     ica.fit(np.transpose(X_reduced))
     sources = np.transpose(ica.transform(np.transpose(X)))
     A = np.transpose(ica.mixing_)

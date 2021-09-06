@@ -43,7 +43,7 @@ class FilterRecordingSegment(BasePreprocessorSegment):
         filtered_traces = filtered_traces[channel_indices, :]
         sk_sp = ss.skew(filtered_traces, axis=1)
         # invert sources with positive skewness
-        filtered_traces[sk_sp > 0] = -filtered_traces[sk_sp > 0]
+        # filtered_traces[sk_sp > 0] = -filtered_traces[sk_sp > 0]
         return filtered_traces.T
 
 

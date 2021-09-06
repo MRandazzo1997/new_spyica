@@ -6,14 +6,15 @@ import os
 import matplotlib.pyplot as plt
 import numpy as np
 import quantities as pq
+import spikeinterface.sortingcomponents
 from sklearn.decomposition import PCA
 from scipy.signal import find_peaks
 from pathlib import Path
 from spikeinterface.toolkit import get_noise_levels
 from spikeinterface.widgets.unitwaveforms import get_template_channel_sparsity
-from spyica.SpyICASorter.SpyICASorter import SpyICASorter
 import h5py as h5py
 import scipy.optimize as so
+import scipy.signal as scis
 
 
 def apply_pca(X, n_comp):
@@ -991,7 +992,7 @@ def exp_func(x, a, b, c):
 
 
 def select_channels(channel_coordinates=None, signals=None, norm_amps=None, sorted_dist=None,
-                    method='filt', thr=.15, zero_level=.05, n_occ=2, percent_channels=0.5):
+                    method='filt', thr=.15, zero_level=.05, n_occ=2, percent_channels=0.5, window_length=None):
     if norm_amps is None or sorted_dist is None:
         sorted_dist, sorted_idx = sort_channels_by_distance_from_peak(channels_coordinates=channel_coordinates,
                                                                       signals=signals)
@@ -1034,7 +1035,8 @@ def select_channels(channel_coordinates=None, signals=None, norm_amps=None, sort
 
     elif method == 'filt':
         from scipy.signal import savgol_filter, find_peaks
-        window_length = int(num_channels / 5)
+        if window_length is None:
+            window_length = int(num_channels / 5)
         if window_length % 2 == 0:
             window_length += 1
         yhat = savgol_filter(norm_amps, window_length, 3)
@@ -1045,7 +1047,7 @@ def select_channels(channel_coordinates=None, signals=None, norm_amps=None, sort
             peaks[chan] = pks
             if len(pks) == 0:
                 source_idx.append(chan)
-        return yhat, peaks, source_idx
+        return yhat, peaks, np.array(source_idx)
     else:
         raise Exception(f"Method {method} not implemented."
                         f"Try 'exp' or 'threshold'.")
@@ -1077,23 +1079,25 @@ def load_sorter_data(data_to_be_loaded, file):
     return dict_of_data
 
 
-def get_traces_snr(recording, method='max'):
-    traces = recording.get_traces().T
-    max_val = -traces.min(axis=1)
+from spikeinterface import sortingcomponents as sc
+
+
+def get_traces_snr(recording, peak_sign='both', method='max'):
+    peaks = sc.detect_peaks(recording, peak_sign='both')
     noise = get_noise_levels(recording)
-    if method == 'max':
-        snr = max_val / noise
-    elif method == 'median':
-        snr = []
-        for chan in range(recording.get_num_channels()):
-            peaks, dict_val = find_peaks(traces[chan], prominence=max_val[chan] / 2)
-            med = np.median(traces[chan][peaks])
+    num_channels = recording.get_num_channels()
+    snr = []
+    for chan in range(num_channels):
+        idxs = np.argwhere(peaks['channel_ind'] == chan)
+        amps = np.abs(peaks['amplitude'][idxs])
+        if method == 'max':
+            max_ = amps.max()
+            snr.append(max_ / noise[chan])
+        elif method == 'median':
+            med = np.median(amps)
             snr.append(med / noise[chan])
-    elif method == 'average':
-        snr = []
-        for chan in range(recording.get_num_channels()):
-            peaks, dict_val = find_peaks(traces[chan], prominence=max_val[chan] / 2)
-            avg = np.average(traces[chan][peaks])
+        elif method == 'average':
+            avg = np.average(amps)
             snr.append(avg / noise[chan])
     return snr
 
@@ -1116,8 +1120,8 @@ def plot_unit_pc(pc, ncols=5, label=None, axes=None, channel_inds=None, xdim=15,
                 pos = (row + col) + (ncols - 1) * row
                 chan = channel_inds[pos]
                 comp = pc[:, :, chan]
-                avg_comp = comp.mean(axis=1)
-                axes[row][col].plot(comp, lw=0.2)
+                avg_comp = comp.mean(axis=0)
+                axes[row][col].plot(comp[:, 0], comp[:, 1], lw=0.2)
                 axes[row][col].plot(avg_comp)
                 axes[row][col].set_title(f"channel: {chan}")
         if label is not None:
@@ -1152,6 +1156,9 @@ def plot_all_units_pc(we, all_pc, all_labels, num_units, xdim=10, ydim=10, ncols
         plot_unit_pc(comp, label=unit, channel_inds=chan_id, axes=axes[xpos][ypos])
 
 
+from spyica.SpyICASorter.SpyICASorter import SpyICASorter
+
+
 def localize_sources(sorter, axis=1):
     if not isinstance(sorter, SpyICASorter):
         raise Exception("Import a SpyICASorter object")
@@ -1168,3 +1175,51 @@ def localize_sources(sorter, axis=1):
         s = np.sum(matrix, axis=axis)
         coms = (matrix @ chan_positions) / s[:, np.newaxis]
     return coms
+
+
+from spikeinterface.core import extract_waveforms
+
+
+def do_match(recording, sorting, units=None, trace_window=100):
+    we = extract_waveforms(recording=recording, sorting=sorting, max_spikes_per_unit=2000, folder='tmp_wf', overwrite=True)
+    num_channels = recording.get_num_channels()
+    if units is None:
+        units = we.sorting.get_unit_ids()
+    # traces = recording.get_traces()
+    unit_starts = {}
+    for unit in units:
+        st_unit = sorting.get_unit_spike_train(unit_id=unit)
+        tmp_unit = we.get_template(unit_id=unit)
+        chan_starts = {}
+        for chan in range(num_channels):
+            tmp_channel = tmp_unit[:, chan]
+            st_start = []
+            for st in st_unit:
+                max_idx = np.argmax(np.abs(tmp_channel))
+                start = st - max_idx - trace_window
+                end = start + len(tmp_channel) + 2*trace_window
+                if start < 0:
+                    start = 0
+                    end = len(tmp_channel)
+                if chan == -1:
+                    print(chan)
+                tr_cut = we.recording.get_traces(start_frame=start, end_frame=end, channel_ids=[str(chan + 1)])[:, 0]
+                # tr_cut = traces[start:end, chan]
+                tr_cut = (tr_cut - np.mean(tr_cut)) / np.std(tr_cut)
+                tmp = (tmp_channel - tmp_channel.mean()) / np.std(tmp_channel)
+                corr = scis.correlate(tr_cut, tmp, mode='same')
+                if len(corr) == 0:
+                    print(tmp.shape, tr_cut.shape, max_idx)
+                lag = scis.correlation_lags(tr_cut.shape[0], tmp.shape[0], mode='same')
+                best_lag = lag[np.argmax(corr)]
+                if 0 < best_lag < len(tmp_channel):
+                    lag_start = start + best_lag
+                    st_start.append(lag_start)
+#                     if lag_start+len(tmp_channel) > recording.get_num_samples(0):
+#                         traces[lag_start:, chan] -= tmp_channel[:recording.get_num_samples(0)-lag_start]
+#                     else:
+#                         traces[lag_start:lag_start+len(tmp_channel), chan] -= tmp_channel
+            chan_starts[int(chan)] = st_start
+            chan_starts[str(chan)+'_tmp'] = tmp_channel
+        unit_starts[int(unit)] = chan_starts
+    return unit_starts

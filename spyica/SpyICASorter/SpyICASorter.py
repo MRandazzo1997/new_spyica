@@ -33,12 +33,14 @@ class SpyICASorter:
         self.independent_spike_idx = None
 
     def mask_traces(self, sample_window_ms=2, percent_spikes=None, balance_spikes_on_channel=False,
-                    max_num_spikes=None):
+                    max_num_spikes=None, detect_threshold=5, method='locally_exclusive'):
         """
         Find mask based on spike peaks
 
         Parameters
         ----------
+        method
+        detect_threshold
         sample_window_ms: float, int, list, or None
             If float or int, it's a symmetric window
             If list, it needs to have 2 elements. Asymmetric window
@@ -68,7 +70,7 @@ class SpyICASorter:
             sample_window_ms = [sample_window_ms, sample_window_ms]
         sample_window = [int(sample_window_ms[0] * self.fs / 1000), int(sample_window_ms[1] * self.fs / 1000)]
         num_channels = self.recording.get_num_channels()
-        peaks = sc.detect_peaks(self.recording, progress_bar=True)
+        peaks = sc.detect_peaks(self.recording, method=method, detect_threshold=detect_threshold, progress_bar=True)
 
         t_init = time.time()
         # subsampling
@@ -105,7 +107,7 @@ class SpyICASorter:
         print(f"Elapsed time idxs selection: {t_end2}")
 
         self.selected_idxs = np.array(sorted(list(self.selected_idxs)))
-        self.selected_idxs = self.selected_idxs[self.selected_idxs > 1]
+        self.selected_idxs = self.selected_idxs[self.selected_idxs > 0]
         self.selected_idxs = self.selected_idxs[self.selected_idxs < self.recording.get_num_samples(0) - 1]
 
         t_init3 = time.time()
@@ -117,7 +119,7 @@ class SpyICASorter:
 
         print(f"Shape: {self.cut_traces.shape}")
 
-    def compute_ica(self, n_comp, ica_alg='ica', n_chunks=0, chunk_size=0,
+    def compute_ica(self, n_comp, ica_alg='ica', n_chunks=0, chunk_size=0, whiten=True,
                     num_pass=1, block_size=800, verbose=True, max_iter=200, seed=None):
         if ica_alg == 'ica' or ica_alg == 'orica':
             if verbose and ica_alg == 'ica':
@@ -131,8 +133,9 @@ class SpyICASorter:
 
         # TODO use random snippets (e.g. 20% of the data) / or spiky signals for fast ICA
         if ica_alg == 'ica':
-            self.s_ica, self.A_ica, self.W_ica = ica.instICA(self.cut_traces, n_comp=n_comp, n_chunks=n_chunks,
-                                                             chunk_size=chunk_size, max_iter=max_iter, seed=seed)
+            self.s_ica, self.A_ica, self.W_ica = ica.instICA(self.cut_traces, n_comp=n_comp,
+                                                             n_chunks=n_chunks, chunk_size=chunk_size,
+                                                             max_iter=max_iter, whiten=whiten, seed=seed)
         else:
             self.s_ica, self.A_ica, self.W_ica = orica.instICA(self.cut_traces, n_comp=n_comp,
                                                                n_chunks=n_chunks, chunk_size=chunk_size,
@@ -141,7 +144,7 @@ class SpyICASorter:
         print(f"Elapsed time: {time.time() - t_init}")
 
     def clean_sources_ica(self, method='filt', kurt_thresh=1, skew_thresh=0.2, verbose=True,
-                          n_occ=2, thr=0.15, zero_level=0.05, percent_channels=0.5):
+                          n_occ=2, thr=0.15, zero_level=0.05, percent_channels=0.5, window_length=None):
         traces = self.recording.get_traces().T
         traces_mean = traces.mean(axis=1)
         self.s_ica = np.matmul(self.W_ica, traces - traces_mean[:, np.newaxis])
@@ -159,7 +162,7 @@ class SpyICASorter:
                                                                           sorted_dist=sorted_dist_pixels,
                                                                           method=method,
                                                                           percent_channels=percent_channels,
-                                                                          thr=thr, n_occ=n_occ)
+                                                                          thr=thr, n_occ=n_occ, window_length=window_length)
 
         cleaned_src_ica, src_idx = clean_sources(self.s_ica, kurt_thresh=kurt_thresh,
                                                  skew_thresh=skew_thresh)
