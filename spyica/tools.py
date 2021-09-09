@@ -1223,3 +1223,92 @@ def do_match(recording, sorting, units=None, trace_window=100):
             chan_starts[str(chan)+'_tmp'] = tmp_channel
         unit_starts[int(unit)] = chan_starts
     return unit_starts
+
+
+import spikeinterface.comparison as scomp
+from spikeinterface.toolkit.postprocessing.template_tools import get_template_extremum_channel
+
+
+def template_subtraction(we, gt, unit_ids=None):
+    recording = we.recording
+    sorting = we.sorting
+    st_trains = sorting.get_all_spike_trains()
+    traces_mask = np.zeros((recording.get_num_samples(0), recording.get_num_channels()))
+    extr_idxs = get_template_extremum_channel(we, outputs='index')
+    if unit_ids is None:
+        unit_ids = sorting.get_unit_ids()
+
+    for unit_id in unit_ids:
+        unit_st = st_trains[0][0][np.argwhere(st_trains[0][1] == unit_id)[:, 0]]
+        templates = we.get_template(unit_id=unit_id)
+        extr_idx = extr_idxs[unit_id]
+        max_id = np.abs(templates[:, extr_idx]).argmax()
+
+        for st in unit_st:
+            start = st - max_id
+            end = start + templates.shape[0]
+            traces_mask[start:end] += templates
+    return traces_mask
+
+
+import mkl
+from scipy.stats import skew
+from spikeinterface.core.job_tools import ChunkRecordingExecutor
+
+
+def _init_clean_chunk(recording, skew_thr, a):
+    worker_ctx = {}
+    if isinstance(recording, dict):
+        from spikeinterface.core import load_extractor
+        recording = load_extractor(recording)
+    worker_ctx['recording'] = recording
+    worker_ctx['skew_thresh'] = skew_thr
+    worker_ctx['a'] = a
+    return worker_ctx
+
+
+def _clean_chunk(segment_index, start_frame, end_frame, worker_ctx):
+    recording = worker_ctx['recording']
+    skew_thresh = worker_ctx['skew_thresh']
+    a = worker_ctx['a']
+    b = a.T
+
+    # prevent numpy to use multithreading
+    mkl.set_num_threads(1)
+
+    traces = recording.get_traces(start_frame=start_frame, end_frame=end_frame, segment_index=segment_index)
+    mean = traces.mean(axis=0)
+    c = np.dot(traces - mean, b)
+
+    sk = skew(c, axis=0)
+    idxs = np.argwhere(np.abs(sk) > skew_thresh)[:, 0]
+
+    return idxs, sk
+
+
+def clean_correlated_sources(recording, a, skew_thresh=0.1, **job_kwargs):
+    func = _clean_chunk
+    init_func = _init_clean_chunk
+    init_args = (recording.to_dict(), skew_thresh, a)
+    processor = ChunkRecordingExecutor(recording, func, init_func, init_args, job_name='clean sources',
+                                       handle_returns=True, **job_kwargs)
+    out = processor.run()
+    out = list(zip(*out))
+    out_idxs = out[0]
+    out_sk = out[1]
+
+    mask = np.zeros((recording.get_num_channels(), len(out_idxs)))
+
+    for i, res in enumerate(out_idxs):
+        mask[res, i] = 1
+
+    final_idxs = []
+    idxs_pos = []
+    sk = np.array(out_sk).mean(axis=0)
+    for i, chan in enumerate(mask):
+        if np.all(chan == 1):
+            final_idxs.append(i)
+            if sk[i] > 0:
+                idxs_pos.append(i)
+
+    return final_idxs, idxs_pos

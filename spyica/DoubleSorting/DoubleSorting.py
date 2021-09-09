@@ -46,3 +46,11 @@ class MatchedRecordingSegment(BasePreprocessorSegment):
                         match_traces[st_start:st_start + len(tmp_channel), chan] -= tmp_channel
         match_traces = match_traces[start_frame:end_frame, channel_indices]
         return match_traces
+
+
+def match_recording(recording, matching_dict, good_units=None):
+    mr = MatchedRecording(recording, matching_dict, good_units=good_units)
+    return mr
+
+
+match_recording.__doc__ = MatchedRecording.__doc__
