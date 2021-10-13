@@ -2,10 +2,31 @@ import numpy as np
 from spikeinterface.toolkit.preprocessing.basepreprocessor import BasePreprocessor, BasePreprocessorSegment
 from tqdm import tqdm
 
+
 class SubtractTemplates(BasePreprocessor):
 
     def __init__(self, recording, sorting, templates_dict, n_before, good_units=None):
-        # templates = np.array(templates, dtype='int32')
+        """
+
+        Parameters
+        ----------
+        recording: RecordingExtractor
+            RecordingExtractor object to be processed.
+        sorting: SortingExtractor
+            Output of spike sorting algorithm.
+        templates_dict: dict
+            Dictionary containing the templates of units to be removed from the recording.
+            The keys are the ids of the units.
+        n_before: int
+            Number of samples before the spike time used to build the templates.
+        good_units: list
+            list of unit ids to be removed from the recording. All the ids must match the keys
+            of templates_dict
+
+        Returns
+        ---------
+        SubtractTemplates object. A new recording without spike of good_units
+        """
 
         BasePreprocessor.__init__(self, recording)
         if good_units is None:
@@ -59,25 +80,6 @@ class SubtractRecordingSegment(BasePreprocessorSegment):
                     traces[start:end] -= temp[:end - start]
                 else:
                     traces[start:end] -= temp
-        # for unit_id in self.good_units:
-        #     idxs = np.argwhere(st_labels == unit_id)[:, 0]
-        #     unit_st = np.array(self.st)[idxs]
-        #     templates = np.array(self.templates[str(unit_id)]).astype('int32')
-        #     extr_idx = self.extr_idxs[str(unit_id)]
-        #     max_id = np.abs(templates[:, extr_idx]).argmax()
-        #
-        #     for st in unit_st:
-        #         if st in range(start_frame, end_frame):
-        #             start = st - max_id - start_frame
-        #             end = start + templates.shape[0]
-        #             if start < 0:
-        #                 tmp = templates[-start:]
-        #                 traces[:end] -= tmp
-        #             else:
-        #                 if end > traces.shape[0]:
-        #                     end = traces.shape[0] - 1
-        #                     templates = templates[:end - start]
-        #                 traces[start:end] -= templates
 
         traces = traces[:, channel_indices]
         return traces

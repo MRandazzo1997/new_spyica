@@ -7,6 +7,19 @@ class LinearMapFilter(BasePreprocessor):
     name = 'Filter'
 
     def __init__(self, recording, matrix):
+        """
+
+        Parameters
+        ----------
+        recording: RecordingExtractor
+            RecordingExtractor object
+        matrix: np.ndarray
+            Matrix of shape (n_features, n_channels)
+
+        Returns
+        ----------
+        LinearMapFilter object. The filtered recording.
+        """
         self.recording = recording
         if isinstance(matrix, list):
             self.M = np.asarray(matrix)
@@ -41,9 +54,6 @@ class FilterRecordingSegment(BasePreprocessorSegment):
         mean = traces.mean(axis=1)
         filtered_traces = np.matmul(self.M, traces - mean[:, np.newaxis])
         filtered_traces = filtered_traces[channel_indices, :]
-        sk_sp = ss.skew(filtered_traces, axis=1)
-        # invert sources with positive skewness
-        # filtered_traces[sk_sp > 0] = -filtered_traces[sk_sp > 0]
         return filtered_traces.T
 
 

@@ -41,8 +41,6 @@ class SpyICASorter:
 
         Parameters
         ----------
-        method
-        detect_threshold
         sample_window_ms: float, int, list, or None
             If float or int, it's a symmetric window
             If list, it needs to have 2 elements. Asymmetric window
@@ -56,11 +54,20 @@ class SpyICASorter:
         balance_spikes_on_channel: bool
             If true, the number of samples taken from each channel depends on the total number of spikes on the channel
             If false, random subsampling
+        detect_threshold: float
+            MAD threshold to detect peaks.
+        method: str
+            Method to detect peaks:
+            * 'by_channel' : peak are detected in each channel independently. (default)
+            * 'locally_exclusive' : locally given a radius the best peak only is taken but
+              not neighboring channels.
+        job_kwargs: dict
+            dict for parallel peak detection.
 
         Returns
         -------
-        cut_traces: numpy array
-            Array with traces
+        cut_traces: np.ndarray
+            Array with subsampled traces
 
         """
         if sample_window_ms is None:
@@ -72,7 +79,7 @@ class SpyICASorter:
             sample_window_ms = [sample_window_ms, sample_window_ms]
         sample_window = [int(sample_window_ms[0] * self.fs / 1000), int(sample_window_ms[1] * self.fs / 1000)]
         num_channels = self.recording.get_num_channels()
-        peaks = sc.detect_peaks(self.recording, method=method, detect_threshold=detect_threshold, progress_bar=True, **job_kwargs)
+        peaks = sc.detect_peaks(self.recording, method=method, detect_threshold=detect_threshold, **job_kwargs)
 
         t_init = time.time()
         # subsampling

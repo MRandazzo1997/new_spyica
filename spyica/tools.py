@@ -1058,6 +1058,17 @@ def select_channels(channel_coordinates=None, signals=None, norm_amps=None, sort
 
 
 def save_sorter_data(dict_of_data, filename):
+    """
+    Save objects of a Sorter to h5 file
+    Parameters
+    ----------
+    dict_of_data: dict
+        dict with object from the Sorter to be saved.
+    filename: str
+        Name of the file
+        Path to save it in a different folder
+
+    """
     filename = Path(filename)
     if not filename.parent.is_dir():
         os.makedirs(str(filename.parent))
@@ -1070,6 +1081,20 @@ def save_sorter_data(dict_of_data, filename):
 
 
 def load_sorter_data(data_to_be_loaded, file):
+    """
+    Load data of a Sorter from h5 file
+    Parameters
+    ----------
+    data_to_be_loaded: list
+        list of str with name of object to be loaded.
+    file: str
+        Name or path to the h5 file
+
+    Returns
+    -------
+    dict_of_data: dict
+        The keys are the str in data_to_be_loaded. The values are the loaded objects.
+    """
     h5_file = h5py.File(file, 'r')
     if not isinstance(data_to_be_loaded, list):
         data_to_be_loaded = [data_to_be_loaded]
@@ -1085,7 +1110,26 @@ from spikeinterface import sortingcomponents as sc
 
 
 def get_traces_snr(recording, peak_sign='both', method='max'):
-    peaks = sc.detect_peaks(recording, peak_sign='both')
+    """
+    Compute SNR of traces from a RecordingExtractor object
+    Parameters
+    ----------
+    recording: RecordingExtractor
+        Recording to be processed.
+    peak_sign: str
+        Sign of the peaks in the recording. 'pos', 'neg' or 'both'
+    method: str
+        Method to compute the SNR:
+        * 'max': SNR = max(trace_peaks) / noise_level
+        * 'avg': SNR = avg(trace_peaks) / noise_level
+        * 'median': SNR = med(trace_peaks) / noise_level
+
+    Returns
+    -------
+    snr: list
+        list of len = n_channels whose values are the SNR of each trace
+    """
+    peaks = sc.detect_peaks(recording, peak_sign=peak_sign)
     noise = get_noise_levels(recording)
     num_channels = recording.get_num_channels()
     snr = []
@@ -1105,6 +1149,22 @@ def get_traces_snr(recording, peak_sign='both', method='max'):
 
 
 def plot_unit_pc(pc, ncols=5, label=None, axes=None, channel_inds=None, xdim=15, ydim=15):
+    """
+    Plot PCs of one unit.
+    Parameters
+    ----------
+    pc
+    ncols
+    label
+    axes
+    channel_inds
+    xdim
+    ydim
+
+    Returns
+    -------
+
+    """
     if channel_inds is None:
         channel_inds = np.arange(pc.shape[2])
 
@@ -1141,6 +1201,22 @@ def plot_unit_pc(pc, ncols=5, label=None, axes=None, channel_inds=None, xdim=15,
 
 
 def plot_all_units_pc(we, all_pc, all_labels, num_units, xdim=10, ydim=10, ncols=5):
+    """
+    Plot PCs of all units we
+    Parameters
+    ----------
+    we
+    all_pc
+    all_labels
+    num_units
+    xdim
+    ydim
+    ncols
+
+    Returns
+    -------
+
+    """
     unit_ids = [f'#{x}' for x in range(num_units)]
     channel_inds = get_template_channel_sparsity(we, method='best_channels',
                                                  outputs='index', num_channels=1)
@@ -1162,6 +1238,20 @@ from spyica.SpyICASorter.SpyICASorter import SpyICASorter
 
 
 def localize_sources(sorter, axis=1):
+    """
+    Localize units positions from Independent Components
+    estimated by ICA through center of mass.
+    Parameters
+    ----------
+    sorter: SpyICASorter
+        SpyICASorter object after running sorter.compute_ica()
+    axis: int
+        Numpy axis along with compute the coms
+
+    Returns
+    -------
+
+    """
     if not isinstance(sorter, SpyICASorter):
         raise Exception("Import a SpyICASorter object")
 
@@ -1295,10 +1385,27 @@ def _clean_chunk(segment_index, start_frame, end_frame, worker_ctx):
     return idxs, sk
 
 
-def clean_correlated_sources(recording, a, skew_thresh=0.1, **job_kwargs):
+def clean_correlated_sources(recording, w, skew_thresh=0.1, **job_kwargs):
+    """
+    Remove false sources estimated by ICA
+    Parameters
+    ----------
+    recording: RecordingExtractor
+        recording used to run ICA
+    w: np.ndarray
+        Unmixing matrix estimated by ICA
+    skew_thresh: float
+        If the skewness of an IC is lower than the threshold it is discarded.
+    job_kwargs: dict
+        Parameters to run the cleaning in parallel. Suggested for large recordings.
+
+    Returns
+    -------
+
+    """
     func = _clean_chunk
     init_func = _init_clean_chunk
-    init_args = (recording.to_dict(), skew_thresh, a)
+    init_args = (recording.to_dict(), skew_thresh, w)
     processor = ChunkRecordingExecutor(recording, func, init_func, init_args, job_name='clean sources',
                                        handle_returns=True, **job_kwargs)
     out = processor.run()
@@ -1321,21 +1428,57 @@ def clean_correlated_sources(recording, a, skew_thresh=0.1, **job_kwargs):
                 idxs_pos.append(i)
 
     return final_idxs, idxs_pos
-    
+
+
 def ica_quality_metric(ic_rec, spike_traces):
+    """
+    Evaluates the "goodness" of estimated IC by computing the correlation with ground truth spike traces.
+    Parameters
+    ----------
+    ic_rec: LinearMapFilter
+        Recording projected to IC space
+    spike_traces: np.ndarray
+        Ground truth spike traces of each unit in the recording.
+
+    Returns
+    -------
+    df: pd.DataFrame
+        Correlation matrix. The indexes are the number of the ICs and the columns the ids of the units.
+
+    """
     ics = ic_rec.get_traces()
     assert ics.shape[0] == spike_traces.shape[0], 'first dimensions of ICs and spike traces must be equal'
     df = pd.DataFrame(data=None, columns=range(spike_traces.shape[1]), index=range(ics.shape[1]))
-    #corr_dict = {}
+    # corr_dict = {}
     for i in range(spike_traces.shape[1]):
         for j in range(ic_rec.get_num_channels()):
             ic = ics[:, j]
-            #corr_dict[i*ica_rec.get_num_channels() + j] = np.corrcoef(spike_traces[:, i], ic)
+            # corr_dict[i*ica_rec.get_num_channels() + j] = np.corrcoef(spike_traces[:, i], ic)
             df.loc[j][i] = np.corrcoef(spike_traces[:, i], ic)[0, 1]
     return df
-    
+
+
 def compare_ic_spike_traces(ics, sorting, spike_traces, unit_ids=None, corr_matrix=None):
-    if corr_matrix == None:
+    """
+    Plot spikes in the spike traces over ICs signal for visual comparison.
+    Parameters
+    ----------
+    ics: LinearMapFilter
+        Recording projected to ICs space
+    sorting: SortingExtractor
+        Ground truth sorting. Needed to get spike trains.
+    spike_traces: np.ndarray
+        Matrix with spike traces of each unit.
+    unit_ids: list
+        list of unit ids from which spike traces are obtained. If None, all units in sorting are used.
+    corr_matrix: pd.DataFrame
+        Correlation matrix between spike_traces and ICs. If None, it is computed.
+
+    Returns
+    -------
+
+    """
+    if corr_matrix is None:
         corr_matrix = np.array(ica_quality_metric(ics, spike_traces), dtype=np.float32)
     corr_max_ic = corr_matrix.argmax(axis=0)
     
@@ -1360,15 +1503,30 @@ def compare_ic_spike_traces(ics, sorting, spike_traces, unit_ids=None, corr_matr
         ax.plot(sel_ic_mat.T*scale, lw=.2, alpha=.1, color='r')
         ax.plot(avg_ic*scale, color='k')
         ax.plot(sel_st_mat.T, color='b')
-        
+
+
 def find_splitted_units(ics, spike_traces):
+    """
+    Bar plot to find duplicates in the ICs, i.e. ICs focused on the same unit.
+    Parameters
+    ----------
+    ics: LinearMapFilter
+        Recording projected to ICs space
+    spike_traces: np.ndarray
+        Matrix with spike traces of each unit.
+
+    Returns
+    -------
+    ic_count: collections.Counter
+        Counter object counting how many ICs are focused on the same unit.
+    """
     corr_df = ica_quality_metric(ics, spike_traces)
     corr_matrix = np.array(corr_df, dtype=np.float32)
-    corr_max_ic = corr_matrix.argmax(axis=0)
+    corr_max_ic = corr_matrix.argmax(axis=1)
     ic_count = collections.Counter(corr_max_ic)
     plt.figure()
     plt.bar(ic_count.keys(), ic_count.values())
     plt.ylabel('Matches')
-    plt.xlabel('IC number')
+    plt.xlabel('Unit number')
     plt.title('Counts same IC matched to different Spike Trace - ' + ics.get_probe().get_title())
     return ic_count
