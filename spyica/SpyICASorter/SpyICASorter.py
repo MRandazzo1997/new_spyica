@@ -10,6 +10,8 @@ from spikeinterface import NumpySorting
 from spikeinterface import sortingcomponents as sc
 from spyica.tools import clean_sources, cluster_spike_amplitudes, detect_and_align, \
     reject_duplicate_spiketrains, sort_channels_by_distance_from_peak, normalize_amplitudes, select_channels
+    
+np.random.seed(0)
 
 
 class SpyICASorter:
@@ -33,7 +35,7 @@ class SpyICASorter:
         self.independent_spike_idx = None
 
     def mask_traces(self, sample_window_ms=2, percent_spikes=None, balance_spikes_on_channel=False,
-                    max_num_spikes=None, detect_threshold=5, method='locally_exclusive'):
+                    max_num_spikes=None, detect_threshold=5, method='locally_exclusive', **job_kwargs):
         """
         Find mask based on spike peaks
 
@@ -70,7 +72,7 @@ class SpyICASorter:
             sample_window_ms = [sample_window_ms, sample_window_ms]
         sample_window = [int(sample_window_ms[0] * self.fs / 1000), int(sample_window_ms[1] * self.fs / 1000)]
         num_channels = self.recording.get_num_channels()
-        peaks = sc.detect_peaks(self.recording, method=method, detect_threshold=detect_threshold, progress_bar=True)
+        peaks = sc.detect_peaks(self.recording, method=method, detect_threshold=detect_threshold, progress_bar=True, **job_kwargs)
 
         t_init = time.time()
         # subsampling

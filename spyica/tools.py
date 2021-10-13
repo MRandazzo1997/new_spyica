@@ -15,6 +15,8 @@ from spikeinterface.widgets.unitwaveforms import get_template_channel_sparsity
 import h5py as h5py
 import scipy.optimize as so
 import scipy.signal as scis
+import collections as collections
+import pandas as pd
 
 
 def apply_pca(X, n_comp):
@@ -1247,7 +1249,14 @@ def template_subtraction(we, gt, unit_ids=None):
         for st in unit_st:
             start = st - max_id
             end = start + templates.shape[0]
-            traces_mask[start:end] += templates
+            if start < 0:
+                tmp = templates[-start:]
+                traces_mask[:end] += tmp
+            else:
+                if end > traces_mask.shape[0]: 
+                    end = traces_mask.shape[0] - 1
+                    templates = templates[:end-start]
+                traces_mask[start:end] += templates
     return traces_mask
 
 
@@ -1312,3 +1321,54 @@ def clean_correlated_sources(recording, a, skew_thresh=0.1, **job_kwargs):
                 idxs_pos.append(i)
 
     return final_idxs, idxs_pos
+    
+def ica_quality_metric(ic_rec, spike_traces):
+    ics = ic_rec.get_traces()
+    assert ics.shape[0] == spike_traces.shape[0], 'first dimensions of ICs and spike traces must be equal'
+    df = pd.DataFrame(data=None, columns=range(spike_traces.shape[1]), index=range(ics.shape[1]))
+    #corr_dict = {}
+    for i in range(spike_traces.shape[1]):
+        for j in range(ic_rec.get_num_channels()):
+            ic = ics[:, j]
+            #corr_dict[i*ica_rec.get_num_channels() + j] = np.corrcoef(spike_traces[:, i], ic)
+            df.loc[j][i] = np.corrcoef(spike_traces[:, i], ic)[0, 1]
+    return df
+    
+def compare_ic_spike_traces(ics, sorting, spike_traces, unit_ids=None, corr_matrix=None):
+    if corr_matrix == None:
+        corr_matrix = np.array(ica_quality_metric(ics, spike_traces), dtype=np.float32)
+    corr_max_ic = corr_matrix.argmax(axis=0)
+    
+    if unit_ids is None:
+        unit_ids = sorting.get_unit_ids()
+        
+    for i, unit in enumerate(unit_ids):
+        fig, ax = plt.subplots()
+        st = sorting.get_unit_spike_train(unit_id=unit)
+        st = st[st > 32]
+        st = st[st < ics.get_num_samples(0) - 32]
+        ic = ics.get_traces(channel_ids=[str(corr_max_ic[i] + 1)])
+        spike_trace = spike_traces[:, i]
+        scale = np.max(-spike_trace) / np.max(-ic)
+        res = map(lambda idx: np.arange(idx - 32, idx + 32), st)
+        sel_idx = np.array(list(res), dtype=np.int32)
+        sel_ic = ic[sel_idx]
+        sel_st = spike_trace[sel_idx]
+        sel_ic_mat = sel_ic.reshape(st.shape[0], -1)
+        sel_st_mat = sel_st.reshape(st.shape[0], -1)
+        avg_ic = sel_ic_mat.mean(axis=0)
+        ax.plot(sel_ic_mat.T*scale, lw=.2, alpha=.1, color='r')
+        ax.plot(avg_ic*scale, color='k')
+        ax.plot(sel_st_mat.T, color='b')
+        
+def find_splitted_units(ics, spike_traces):
+    corr_df = ica_quality_metric(ics, spike_traces)
+    corr_matrix = np.array(corr_df, dtype=np.float32)
+    corr_max_ic = corr_matrix.argmax(axis=0)
+    ic_count = collections.Counter(corr_max_ic)
+    plt.figure()
+    plt.bar(ic_count.keys(), ic_count.values())
+    plt.ylabel('Matches')
+    plt.xlabel('IC number')
+    plt.title('Counts same IC matched to different Spike Trace - ' + ics.get_probe().get_title())
+    return ic_count
