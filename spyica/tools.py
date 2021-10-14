@@ -17,6 +17,7 @@ import scipy.optimize as so
 import scipy.signal as scis
 import collections as collections
 import pandas as pd
+import matplotlib.lines as mlines
 
 
 def apply_pca(X, n_comp):
@@ -1451,16 +1452,20 @@ def ica_quality_metric(ic_rec, spike_traces):
     df = pd.DataFrame(data=None, columns=range(spike_traces.shape[1]), index=range(ics.shape[1]))
     # corr_dict = {}
     for i in range(spike_traces.shape[1]):
-        for j in range(ic_rec.get_num_channels()):
-            ic = ics[:, j]
-            # corr_dict[i*ica_rec.get_num_channels() + j] = np.corrcoef(spike_traces[:, i], ic)
-            df.loc[j][i] = np.corrcoef(spike_traces[:, i], ic)[0, 1]
+        corr_list = map(lambda ic: np.corrcoef(spike_traces[:, i], ic)[0, 1], ics.T)
+        corr_list = list(corr_list)
+        df[i] = corr_list
+        # for j in range(ic_rec.get_num_channels()):
+        #    ic = ics[:, j]
+        #    #corr_dict[i*ica_rec.get_num_channels() + j] = np.corrcoef(spike_traces[:, i], ic)
+        #    df.loc[j][i] = np.corrcoef(spike_traces[:, i], ic)[0, 1]
     return df
 
 
-def compare_ic_spike_traces(ics, sorting, spike_traces, unit_ids=None, corr_matrix=None):
+def compare_ic_spike_traces(ics, sorting, spike_traces, ic_idxs=None, width=6.4, height=20, nbefore=32,
+                            corr_matrix=None):
     """
-    Plot spikes in the spike traces over ICs signal for visual comparison.
+    Plot spikes of spike traces over ICs spikes for visual comparison.
     Parameters
     ----------
     ics: LinearMapFilter
@@ -1469,8 +1474,14 @@ def compare_ic_spike_traces(ics, sorting, spike_traces, unit_ids=None, corr_matr
         Ground truth sorting. Needed to get spike trains.
     spike_traces: np.ndarray
         Matrix with spike traces of each unit.
-    unit_ids: list
-        list of unit ids from which spike traces are obtained. If None, all units in sorting are used.
+    ic_idxs: list
+        list of IC indexes to be plotted
+    width: float
+        width parameter of matplotlib figsize
+    height: float
+        height parameter of matplotlib figsize
+    nbefore: int
+        Number of samples plotted before and after each spike time
     corr_matrix: pd.DataFrame
         Correlation matrix between spike_traces and ICs. If None, it is computed.
 
@@ -1480,29 +1491,28 @@ def compare_ic_spike_traces(ics, sorting, spike_traces, unit_ids=None, corr_matr
     """
     if corr_matrix is None:
         corr_matrix = np.array(ica_quality_metric(ics, spike_traces), dtype=np.float32)
-    corr_max_ic = corr_matrix.argmax(axis=0)
-    
-    if unit_ids is None:
-        unit_ids = sorting.get_unit_ids()
-        
-    for i, unit in enumerate(unit_ids):
-        fig, ax = plt.subplots()
-        st = sorting.get_unit_spike_train(unit_id=unit)
-        st = st[st > 32]
-        st = st[st < ics.get_num_samples(0) - 32]
-        ic = ics.get_traces(channel_ids=[str(corr_max_ic[i] + 1)])
-        spike_trace = spike_traces[:, i]
-        scale = np.max(-spike_trace) / np.max(-ic)
-        res = map(lambda idx: np.arange(idx - 32, idx + 32), st)
-        sel_idx = np.array(list(res), dtype=np.int32)
-        sel_ic = ic[sel_idx]
-        sel_st = spike_trace[sel_idx]
-        sel_ic_mat = sel_ic.reshape(st.shape[0], -1)
-        sel_st_mat = sel_st.reshape(st.shape[0], -1)
-        avg_ic = sel_ic_mat.mean(axis=0)
-        ax.plot(sel_ic_mat.T*scale, lw=.2, alpha=.1, color='r')
-        ax.plot(avg_ic*scale, color='k')
-        ax.plot(sel_st_mat.T, color='b')
+    corr_max_ic = corr_matrix.argmax(axis=1)
+    if ic_idxs is not None:
+        corr_max_ic = corr_max_ic[ic_idxs]
+
+    fig, ax = plt.subplots(nrows=corr_max_ic.shape[0], ncols=1, figsize=(width, height))
+
+    for i, unit in enumerate(corr_max_ic):
+        st = sorting.get_unit_spike_train(unit_id=f'#{unit}')
+        st = st[st > nbefore]
+        st = st[st < ics.get_num_samples(0) - nbefore]
+        sel_idx = map(lambda t: np.arange(t - nbefore, t + nbefore), st)
+        sel_idx = np.array(list(sel_idx), dtype=np.int32)
+        sel_trace = spike_traces[sel_idx, unit].reshape(-1, nbefore * 2).T
+        sel_ic = ics.get_traces(channel_ids=[str(i + 1)])[sel_idx].reshape(-1, nbefore * 2).T
+        ax[i].plot(sel_ic * 1e4, color='r', alpha=.01)
+        ax[i].plot(sel_ic.mean(axis=1) * 1e4, color='k')
+        ax[i].plot(sel_trace, color='b')
+        ics_leg = mlines.Line2D([], [], color='r', marker='D', ls='', label=f'IC {i} spikes')
+        ics_avg_leg = mlines.Line2D([], [], color='k', marker='D', ls='', label=f'IC {i} template')
+        traces_leg = mlines.Line2D([], [], color='b', marker='D', ls='', label=f'Unit {unit} spikes')
+        ax[i].legend(handles=[ics_leg, ics_avg_leg, traces_leg])
+    return corr_matrix, ax
 
 
 def find_splitted_units(ics, spike_traces):
@@ -1528,5 +1538,5 @@ def find_splitted_units(ics, spike_traces):
     plt.bar(ic_count.keys(), ic_count.values())
     plt.ylabel('Matches')
     plt.xlabel('Unit number')
-    plt.title('Counts same IC matched to different Spike Trace - ' + ics.get_probe().get_title())
+    plt.title('Counts ICs matched to same Spike Trace - ' + ics.get_probe().get_title())
     return ic_count
