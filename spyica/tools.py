@@ -1235,7 +1235,7 @@ def plot_all_units_pc(we, all_pc, all_labels, num_units, xdim=10, ydim=10, ncols
         plot_unit_pc(comp, label=unit, channel_inds=chan_id, axes=axes[xpos][ypos])
 
 
-from spyica.SpyICASorter.SpyICASorter import SpyICASorter
+from spyica.spyICAsorter.spyICAsorter import SpyICASorter
 
 
 def localize_sources(sorter, axis=1):
@@ -1245,7 +1245,7 @@ def localize_sources(sorter, axis=1):
     Parameters
     ----------
     sorter: SpyICASorter
-        SpyICASorter object after running sorter.compute_ica()
+        spyICAsorter object after running sorter.compute_ica()
     axis: int
         Numpy axis along with compute the coms
 
@@ -1254,7 +1254,7 @@ def localize_sources(sorter, axis=1):
 
     """
     if not isinstance(sorter, SpyICASorter):
-        raise Exception("Import a SpyICASorter object")
+        raise Exception("Import a spyICAsorter object")
 
     recording = sorter.recording
     idx = sorter.source_idx

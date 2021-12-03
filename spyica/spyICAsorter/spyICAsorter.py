@@ -8,8 +8,8 @@ import spyica.orica as orica
 
 from spikeinterface import NumpySorting
 from spikeinterface import sortingcomponents as sc
-from spyica.tools import clean_sources, cluster_spike_amplitudes, detect_and_align, \
-    reject_duplicate_spiketrains, sort_channels_by_distance_from_peak, normalize_amplitudes, select_channels
+from spyica.tools import clean_correlated_sources, cluster_spike_amplitudes, detect_and_align, \
+    reject_duplicate_spiketrains
     
 np.random.seed(0)
 
@@ -152,38 +152,19 @@ class SpyICASorter:
 
         print(f"Elapsed time: {time.time() - t_init}")
 
-    def clean_sources_ica(self, method='filt', kurt_thresh=1, skew_thresh=0.2, verbose=True,
-                          n_occ=2, thr=0.15, zero_level=0.05, percent_channels=0.5, window_length=None):
-        traces = self.recording.get_traces().T
-        traces_mean = traces.mean(axis=1)
-        self.s_ica = np.matmul(self.W_ica, traces - traces_mean[:, np.newaxis])
-        if method == 'old':
-            # clean sources based on skewness and kurtosis
-            self.cleaned_sources_ica, self.source_idx = clean_sources(self.s_ica, kurt_thresh=kurt_thresh,
-                                                                      skew_thresh=skew_thresh)
-        else:
-            channel_coord = self.recording.get_channel_locations()
-            sorted_dist_pixels, sorted_idx_pixels = sort_channels_by_distance_from_peak(channel_coord,
-                                                                                        signals=self.A_ica)
-            norm_amps_pixels = normalize_amplitudes(self.A_ica, sorted_idx_pixels)
-            self.filt_amps, self.peaks, self.source_idx = select_channels(norm_amps=norm_amps_pixels,
-                                                                          zero_level=zero_level,
-                                                                          sorted_dist=sorted_dist_pixels,
-                                                                          method=method,
-                                                                          percent_channels=percent_channels,
-                                                                          thr=thr, n_occ=n_occ, window_length=window_length)
+    def clean_sources_ica(self, skew_thresh=0.2, verbose=True, **job_kwargs):
+        cleaning_result = clean_correlated_sources(self.recording, self.W_ica, skew_thresh=skew_thresh, **job_kwargs)
+        self.source_idx = cleaning_result[0]
 
-        cleaned_src_ica, src_idx = clean_sources(self.s_ica, kurt_thresh=kurt_thresh,
-                                                 skew_thresh=skew_thresh)
-        print(src_idx, src_idx.shape[0])
-        print(self.source_idx, self.source_idx.shape[0])
-
+        self.s_ica[cleaning_result[1]] = self.s_ica[cleaning_result[1]]
         self.cleaned_sources_ica = self.s_ica[self.source_idx]
+        self.A_ica[cleaning_result[1]] = -self.A_ica[cleaning_result[1]]
         self.cleaned_A_ica = self.A_ica[self.source_idx]
+        self.W_ica[cleaning_result[1]] = -self.W_ica[cleaning_result[1]]
         self.cleaned_W_ica = self.W_ica[self.source_idx]
 
         if verbose:
-            print('Number of cleaned sources: ', self.cleaned_sources_ica.shape[0])
+            print('Number of cleaned sources: ', len(self.source_idx))
 
     def cluster(self, num_frames, clustering='mog', spike_thresh=5,
                 keep_all_clusters=False, features='amp', verbose=True):

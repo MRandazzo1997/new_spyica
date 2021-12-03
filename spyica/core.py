@@ -6,7 +6,7 @@ import numpy as np
 import quantities as pq
 import scipy.stats as stats
 import spyica.orica as orica
-import spyica.SpyICASorter as ss
+import spyica.spyICAsorter as ss
 
 from spikeinterface import BaseRecording
 from .tools import detect_and_align, reject_duplicate_spiketrains, \
@@ -63,7 +63,7 @@ def ica_spike_sorting(recording, clustering='mog', n_comp='all', whiten=True,
 
     # TODO add spike properties and features
 
-    return sorting, sorter, traces_mean  # , cleaned_sources_ica
+    return sorting, sorter, traces_mean
 
 
 def orica_spike_sorting(recording, clustering='mog', n_comp='all',

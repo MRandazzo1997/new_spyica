@@ -56,7 +56,8 @@ class SubtractRecordingSegment(BasePreprocessorSegment):
         self.unit_ids = unit_ids
 
     def get_traces(self, start_frame, end_frame, channel_indices):
-        traces = self.parent_recording_segment.get_traces(start_frame, end_frame, slice(None))
+        t = self.parent_recording_segment.get_traces(start_frame, end_frame, slice(None))
+        traces = t.copy()  # needed by parallel in unitsrecovery
         if start_frame is None:
             start_frame = 0
         if end_frame is None:
